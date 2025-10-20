@@ -1,0 +1,1 @@
+export { DOMService } from "./dom";
