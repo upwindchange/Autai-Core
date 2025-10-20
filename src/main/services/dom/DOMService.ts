@@ -39,32 +39,26 @@ export class DOMService implements IDOMService {
    * Send CDP command with simple timeout
    */
   async sendCommand<T = unknown>(method: string, params?: unknown): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(`Command ${method} timed out after 10s`));
-      }, 10000);
+    try {
+      this.logger.debug(`Sending command: ${method}`, params);
 
-      this.webContents.debugger.sendCommand(method, params);
+      // According to Electron docs, sendCommand returns a Promise that resolves with the response
+      const result = await Promise.race([
+        this.webContents.debugger.sendCommand(method, params),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error(`Command ${method} timed out after 10s`)),
+            10000
+          )
+        ),
+      ]);
 
-      const handleResponse = (
-        _event: unknown,
-        responseMethod: string,
-        responseParams: unknown
-      ) => {
-        if (responseMethod === method || responseMethod.includes("error")) {
-          clearTimeout(timeout);
-          this.webContents.debugger.removeAllListeners("message");
-
-          if (responseMethod.includes("error")) {
-            reject(new Error(`Command ${method} failed`));
-          } else {
-            resolve(responseParams as T);
-          }
-        }
-      };
-
-      this.webContents.debugger.on("message", handleResponse);
-    });
+      this.logger.debug(`Command ${method} completed successfully`);
+      return result as T;
+    } catch (error) {
+      this.logger.error(`Command ${method} failed:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -110,6 +104,10 @@ export class DOMService implements IDOMService {
 
     try {
       this.logger.debug("Getting DOM tree");
+
+      // Enable DOM agent
+      await this.sendCommand("DOM.enable");
+      this.logger.debug("DOM agent enabled successfully");
 
       // Get all CDP data
       const trees = await this.getAllTrees();
@@ -158,7 +156,10 @@ export class DOMService implements IDOMService {
           snapshot.status === "fulfilled"
             ? (snapshot.value as DOMSnapshot)
             : { documents: [], strings: [] },
-        domTree: domTree.status === "fulfilled" ? (domTree.value as DOMDocument) : null,
+        domTree:
+          domTree.status === "fulfilled"
+            ? (domTree.value as DOMDocument)
+            : null,
         axTree:
           axTree.status === "fulfilled"
             ? { nodes: (axTree.value as { nodes: AXNode[] }).nodes || [] }
@@ -241,7 +242,14 @@ export class DOMService implements IDOMService {
           x2: x + w,
           y2: y + h,
           area: w * h,
-          toDict: function() { return { x: this.x, y: this.y, width: this.width, height: this.height }; }
+          toDict: function () {
+            return {
+              x: this.x,
+              y: this.y,
+              width: this.width,
+              height: this.height,
+            };
+          },
         };
         if (layout.styles?.[layoutIdx]) {
           computedStyles = {};
@@ -262,7 +270,7 @@ export class DOMService implements IDOMService {
    * Construct enhanced node (simplified)
    */
   private constructEnhancedNode(
-    node: DOMDocument['root'],
+    node: DOMDocument["root"],
     axTreeLookup: Record<number, AXNode>,
     snapshotLookup: Record<number, EnhancedSnapshotNode>,
     nodeLookup: Record<number, EnhancedDOMTreeNode>,
@@ -311,10 +319,11 @@ export class DOMService implements IDOMService {
             role: axNode.role?.value || null,
             name: axNode.name?.value || null,
             description: axNode.description?.value || null,
-            properties: axNode.properties?.map(prop => ({
-              name: prop.name,
-              value: prop.value?.value ?? null
-            })) || null,
+            properties:
+              axNode.properties?.map((prop) => ({
+                name: prop.name,
+                value: prop.value?.value ?? null,
+              })) || null,
             childIds: axNode.childIds || null,
           }
         : null,

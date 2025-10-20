@@ -67,6 +67,28 @@ function createWindow() {
   // Initialize DOMService with the webContents
   domService = new DOMService(webView.webContents);
 
+  // Wait for page to load before enabling DOM operations
+  webView.webContents.on('did-finish-load', async () => {
+    logger.info("Page finished loading, processing DOM...");
+
+    try {
+      if (domService) {
+        // Initialize DOM Service if not already initialized
+        await domService.initialize();
+
+        // Get DOM tree automatically after page loads
+        const domTree = await domService.getDOMTree();
+        logger.info(`DOM tree processed successfully with ${JSON.stringify(domTree).length} chars`);
+      }
+    } catch (error) {
+      logger.error("Failed to process DOM after page load:", error);
+    }
+  });
+
+  webView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    logger.error(`Page failed to load: ${errorCode} - ${errorDescription}`);
+  });
+
   // Load the URL
   webView.webContents.loadURL(DEFAULT_URL).catch((error) => {
     logger.error("Failed to load URL:", error);
