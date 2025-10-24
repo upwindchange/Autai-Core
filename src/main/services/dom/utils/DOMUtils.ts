@@ -1,53 +1,57 @@
 /**
- * Simplified DOM Utilities - Essential functions following browser-use patterns
+ * DOM utilities for layout and visibility calculations
  */
 
-import type { DOMSnapshot, EnhancedSnapshotNode, DOMRect } from "@shared/dom";
+import type { EnhancedSnapshotNode } from "@shared/dom";
+import type { Protocol as CDP } from "devtools-protocol";
 
 /**
- * Build snapshot lookup (simplified)
+ * Build snapshot lookup using official DOMSnapshot structure
  */
 export function buildSnapshotLookup(
-  snapshot: DOMSnapshot,
+  snapshot: CDP.DOMSnapshot.GetSnapshotResponse,
   devicePixelRatio: number = 1.0
 ): Record<number, EnhancedSnapshotNode> {
   const lookup: Record<number, EnhancedSnapshotNode> = {};
 
-  if (!snapshot.documents?.[0]) return lookup;
+  if (!snapshot.domNodes || !snapshot.layoutTreeNodes || !snapshot.computedStyles) {
+    return lookup;
+  }
 
-  const { nodeTree, layout } = snapshot.documents[0];
-  if (!nodeTree?.backendNodeId || !layout?.nodeIndex) return lookup;
+  const computedStyleMap = new Map<number, CDP.DOMSnapshot.ComputedStyle>();
+  snapshot.computedStyles.forEach((style, index) => {
+    computedStyleMap.set(index, style);
+  });
+  for (const layoutNode of snapshot.layoutTreeNodes) {
+    const domNode = snapshot.domNodes[layoutNode.domNodeIndex];
+    if (!domNode) continue;
 
-  // Simple lookup for backend node IDs
-  for (let i = 0; i < nodeTree.backendNodeId.length; i++) {
-    const nodeId = nodeTree.backendNodeId[i];
-    const isClickable = nodeTree.isClickable?.index?.includes(i) || false;
+    const backendNodeId = domNode.backendNodeId;
 
-    let bounds: DOMRect | null = null;
-    const computedStyles: Record<string, string> | null = null;
+    let bounds: CDP.DOM.Rect | null = null;
+    let computedStyles: Record<string, string> | null = null;
     let cursorStyle: string | undefined;
+    const isClickable = false;
 
-    // Find layout data
-    const layoutIdx = layout.nodeIndex.indexOf(i);
-    if (layoutIdx >= 0 && layout.bounds && layout.bounds[layoutIdx]?.length >= 4) {
-      // Parse bounds
-      const boundsData = layout.bounds[layoutIdx];
-      const [x, y, w, h] = boundsData;
+    if (layoutNode.boundingBox) {
       bounds = {
-        x: x / devicePixelRatio,
-        y: y / devicePixelRatio,
-        width: w / devicePixelRatio,
-        height: h / devicePixelRatio,
-        x1: x / devicePixelRatio,
-        y1: y / devicePixelRatio,
-        x2: (x + w) / devicePixelRatio,
-        y2: (y + h) / devicePixelRatio,
-        area: (w * h) / (devicePixelRatio * devicePixelRatio),
-        toDict() { return { x: this.x, y: this.y, width: this.width, height: this.height }; }
+        x: layoutNode.boundingBox.x / devicePixelRatio,
+        y: layoutNode.boundingBox.y / devicePixelRatio,
+        width: layoutNode.boundingBox.width / devicePixelRatio,
+        height: layoutNode.boundingBox.height / devicePixelRatio
       };
     }
+    if (layoutNode.styleIndex !== undefined) {
+      const style = computedStyleMap.get(layoutNode.styleIndex);
+      if (style?.properties) {
+        computedStyles = {};
+        for (const prop of style.properties) {
+          computedStyles[prop.name] = prop.value;
+        }
+      }
+    }
 
-    lookup[nodeId] = {
+    lookup[backendNodeId] = {
       isClickable,
       cursorStyle,
       bounds,
@@ -86,8 +90,8 @@ export function isElementClickable(cursorStyle?: string): boolean {
  * Extract scroll info (simplified)
  */
 export function extractScrollInfo(
-  scrollRects: DOMRect | null,
-  clientRects: DOMRect | null
+  scrollRects: CDP.DOM.Rect | null,
+  clientRects: CDP.DOM.Rect | null
 ): { scrollTop: number; scrollLeft: number; scrollableHeight: number; scrollableWidth: number; visibleHeight: number; visibleWidth: number } | null {
   if (!scrollRects || !clientRects) return null;
 
@@ -105,8 +109,8 @@ export function extractScrollInfo(
  * Check if element is scrollable
  */
 export function isElementScrollable(
-  scrollRects: DOMRect | null,
-  clientRects: DOMRect | null,
+  scrollRects: CDP.DOM.Rect | null,
+  clientRects: CDP.DOM.Rect | null,
   computedStyles: Record<string, string> | null
 ): boolean {
   if (!scrollRects || !clientRects) return false;
@@ -128,9 +132,9 @@ export function isElementScrollable(
  * Calculate absolute position
  */
 export function calculateAbsolutePosition(
-  node: { snapshotNode?: { bounds?: DOMRect | null } },
-  frameOffset: DOMRect = { x: 0, y: 0, width: 0, height: 0, x1: 0, y1: 0, x2: 0, y2: 0, area: 0, toDict() { return {}; } }
-): DOMRect | null {
+  node: { snapshotNode?: { bounds?: CDP.DOM.Rect | null } },
+  frameOffset: CDP.DOM.Rect = { x: 0, y: 0, width: 0, height: 0 }
+): CDP.DOM.Rect | null {
   if (!node.snapshotNode?.bounds) return null;
 
   const bounds = node.snapshotNode.bounds;
@@ -139,12 +143,6 @@ export function calculateAbsolutePosition(
     y: bounds.y + frameOffset.y,
     width: bounds.width,
     height: bounds.height,
-    x1: bounds.x + frameOffset.x,
-    y1: bounds.y + frameOffset.y,
-    x2: bounds.x + frameOffset.x + bounds.width,
-    y2: bounds.y + frameOffset.y + bounds.height,
-    area: bounds.area,
-    toDict() { return { x: this.x, y: this.y, width: this.width, height: this.height }; }
   };
 }
 
@@ -152,7 +150,7 @@ export function calculateAbsolutePosition(
  * Calculate scroll percentage
  */
 export function calculateScrollPercentage(
-  _elementBounds: DOMRect,
+  _elementBounds: CDP.DOM.Rect,
   scrollInfo: { scrollTop: number; scrollLeft: number; scrollableHeight: number; scrollableWidth: number; visibleHeight: number; visibleWidth: number }
 ): { vertical: number; horizontal: number } {
   let vertical = 0;

@@ -4,11 +4,11 @@ import path from "node:path";
 import { is } from "@electron-toolkit/utils";
 import log from "electron-log/main";
 import { DOMService } from "./services/dom/DOMService";
+import type { SerializedDOMState, SerializationConfig } from "@shared/dom";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = log.scope("main");
 
-// Constants
 const DEFAULT_URL = "https://www.google.com";
 
 process.env.APP_ROOT = path.join(__dirname, "../..");
@@ -49,7 +49,6 @@ function createWindow() {
     win.loadFile(indexHtml);
   }
 
-  // Create WebContentsView following the original Autai pattern
   webView = new WebContentsView({
     webPreferences: {
       contextIsolation: true,
@@ -58,38 +57,29 @@ function createWindow() {
     },
   });
 
-  // Set transparent background like in original Autai
   webView.setBackgroundColor("#00000000");
 
-  // Add to window's contentView
   win.contentView.addChildView(webView);
 
-  // Initialize DOMService with the webContents
   domService = new DOMService(webView.webContents);
-
-  // Wait for page to load before enabling DOM operations
   webView.webContents.on('did-finish-load', async () => {
     logger.info("Page finished loading, processing DOM...");
 
     try {
       if (domService) {
-        // Initialize DOM Service if not already initialized
         await domService.initialize();
-
-        // Get DOM tree automatically after page loads
-        const domTree = await domService.getDOMTree();
-        logger.info(`DOM tree processed successfully with ${JSON.stringify(domTree).length} chars`);
+        await domService.getDOMTree();
+        logger.info(`DOM tree processed successfully - tree construction complete`);
       }
     } catch (error) {
       logger.error("Failed to process DOM after page load:", error);
     }
   });
 
-  webView.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+  webView.webContents.on('did-fail-load', (_, errorCode, errorDescription) => {
     logger.error(`Page failed to load: ${errorCode} - ${errorDescription}`);
   });
 
-  // Load the URL
   webView.webContents.loadURL(DEFAULT_URL).catch((error) => {
     logger.error("Failed to load URL:", error);
   });
@@ -126,7 +116,6 @@ app.on("window-all-closed", () => {
 app.on("before-quit", async () => {
   logger.info("Cleaning up before quit...");
 
-  // Clean up DOMService first
   if (domService) {
     try {
       await domService.destroy();
@@ -139,7 +128,6 @@ app.on("before-quit", async () => {
 
   if (webView && win && !win.isDestroyed()) {
     try {
-      // Clean up webContents first (following Autai pattern)
       if (webView.webContents && !webView.webContents.isDestroyed()) {
         try {
           webView.webContents.stop();
@@ -152,7 +140,6 @@ app.on("before-quit", async () => {
         }
       }
 
-      // Remove view from window
       try {
         win.contentView.removeChildView(webView);
         logger.debug("WebContentsView removed from window");
@@ -164,17 +151,13 @@ app.on("before-quit", async () => {
     }
   }
 
-  // Clean up window
   if (win && !win.isDestroyed()) {
     win.destroy();
   }
-
-  // Clear references
   webView = null;
   win = null;
 });
 
-// IPC handlers for bounds management
 ipcMain.on("view:setBounds", (_, bounds: Rectangle) => {
   logger.debug("Setting view bounds:", bounds);
   viewBounds = bounds;
@@ -195,7 +178,6 @@ ipcMain.handle("view:getBounds", () => {
   return viewBounds;
 });
 
-// DOM Service IPC handlers
 ipcMain.handle("dom:initialize", async () => {
   if (!domService) {
     throw new Error("DOMService not initialized");
@@ -221,7 +203,7 @@ ipcMain.handle("dom:getDOMTree", async () => {
   }
 });
 
-ipcMain.handle("dom:getSerializedDOMTree", async (_, previousState?: any, config?: any) => {
+ipcMain.handle("dom:getSerializedDOMTree", async (_, previousState?: SerializedDOMState, config?: Partial<SerializationConfig>) => {
   if (!domService) {
     throw new Error("DOMService not initialized");
   }

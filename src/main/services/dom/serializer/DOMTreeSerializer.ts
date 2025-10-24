@@ -126,8 +126,8 @@ export class DOMTreeSerializer {
     };
 
     // Process children
-    if (node.children) {
-      for (const child of node.children) {
+    if (node.actualChildren) {
+      for (const child of node.actualChildren) {
         const simplifiedChild = this.createSimplifiedNode(child);
         if (simplifiedChild) {
           simplified.children.push(simplifiedChild);
@@ -193,7 +193,7 @@ export class DOMTreeSerializer {
     // Check accessibility properties
     if (node.axNode?.properties) {
       for (const prop of node.axNode.properties) {
-        if (prop.name === 'focusable' && prop.value === true) {
+        if (prop.name === 'focusable' && prop.value?.type === 'boolean' && prop.value.value === true) {
           return true;
         }
       }

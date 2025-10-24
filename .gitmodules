@@ -1,0 +1,9 @@
+[submodule "reference/devtools-protocol"]
+	path = reference/devtools-protocol
+	url = git@github.com:ChromeDevTools/devtools-protocol.git
+[submodule "reference/browser-use"]
+	path = reference/browser-use
+	url = git@github.com:browser-use/browser-use.git
+[submodule "reference/debugger-protocol-viewer"]
+	path = reference/debugger-protocol-viewer
+	url = git@github.com:ChromeDevTools/debugger-protocol-viewer.git

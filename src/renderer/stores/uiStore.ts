@@ -15,7 +15,7 @@ interface UiState {
 }
 
 export const useUiStore = create<UiState>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set) => ({
     // Initial state
     containerRef: null,
     containerBounds: null,

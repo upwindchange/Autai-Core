@@ -1,25 +1,20 @@
 /**
- * Simplified DOM Service - Direct CDP integration following browser-use patterns
- *
- * Minimal abstraction with direct CDP access and simple timeout handling
+ * Direct CDP integration for DOM manipulation and analysis
  */
 
 import type { WebContents } from "electron";
 import log from "electron-log/main";
+import type { Protocol as CDP } from "devtools-protocol";
 
 import type {
   IDOMService,
   EnhancedDOMTreeNode,
   TargetAllTrees,
-  DOMSnapshot,
   SerializedDOMState,
   SerializationConfig,
   SerializationTiming,
   SerializationStats,
-  DOMDocument,
-  AXNode,
   EnhancedSnapshotNode,
-  DOMRect,
 } from "@shared/dom";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 
@@ -35,14 +30,10 @@ export class DOMService implements IDOMService {
     this.logger.info("DOMService initialized - direct CDP integration");
   }
 
-  /**
-   * Send CDP command with simple timeout
-   */
   async sendCommand<T = unknown>(method: string, params?: unknown): Promise<T> {
     try {
       this.logger.debug(`Sending command: ${method}`, params);
 
-      // According to Electron docs, sendCommand returns a Promise that resolves with the response
       const result = await Promise.race([
         this.webContents.debugger.sendCommand(method, params),
         new Promise<never>((_, reject) =>
@@ -61,9 +52,6 @@ export class DOMService implements IDOMService {
     }
   }
 
-  /**
-   * Attach debugger
-   */
   async attach(): Promise<void> {
     try {
       this.webContents.debugger.attach("1.3");
@@ -74,9 +62,6 @@ export class DOMService implements IDOMService {
     }
   }
 
-  /**
-   * Detach debugger
-   */
   async detach(): Promise<void> {
     try {
       this.webContents.debugger.detach();
@@ -87,16 +72,10 @@ export class DOMService implements IDOMService {
     }
   }
 
-  /**
-   * Check if debugger is attached
-   */
   isAttached(): boolean {
     return this.webContents.debugger.isAttached();
   }
 
-  /**
-   * Get enhanced DOM tree
-   */
   async getDOMTree(): Promise<EnhancedDOMTreeNode> {
     if (!this.isAttached()) {
       throw new Error("Debugger not attached - call initialize() first");
@@ -105,19 +84,16 @@ export class DOMService implements IDOMService {
     try {
       this.logger.debug("Getting DOM tree");
 
-      // Enable DOM agent
       await this.sendCommand("DOM.enable");
       this.logger.debug("DOM agent enabled successfully");
 
-      // Get all CDP data
       const trees = await this.getAllTrees();
 
-      // Build enhanced tree directly
+      this.logger.debug("Building enhanced DOM tree from CDP data");
       const enhancedTree = this.buildEnhancedDOMTree(trees);
 
-      this.logger.info(
-        `DOM tree built with ${this.countNodes(enhancedTree)} nodes`
-      );
+      const nodeCount = this.countNodes(enhancedTree);
+      this.logger.info(`DOM tree built successfully with ${nodeCount} nodes`);
       return enhancedTree;
     } catch (error) {
       this.logger.error(`Failed to get DOM tree: ${error}`);
@@ -132,38 +108,44 @@ export class DOMService implements IDOMService {
     try {
       this.logger.debug("Collecting CDP data");
 
-      // Get DOM data in parallel
+      // Get DOM data in parallel with correct CDP typing
       const [domTree, snapshot, axTree] = await Promise.allSettled([
-        this.sendCommand("DOM.getDocument", { depth: -1, pierce: true }),
-        this.sendCommand("DOMSnapshot.captureSnapshot", {
-          computedStyles: [
-            "display",
-            "visibility",
-            "opacity",
-            "cursor",
-            "position",
-          ],
-          includePaintOrder: true,
-          includeDOMRects: true,
-          includeBlendedBackgroundColors: false,
-          includeTextColorOpacities: false,
+        this.sendCommand<CDP.DOM.GetDocumentResponse>("DOM.getDocument", {
+          depth: -1,
+          pierce: true,
         }),
-        this.sendCommand("Accessibility.getFullAXTree"),
+        this.sendCommand<CDP.DOMSnapshot.GetSnapshotResponse>(
+          "DOMSnapshot.captureSnapshot",
+          {
+            computedStyles: [
+              "display",
+              "visibility",
+              "opacity",
+              "cursor",
+              "position",
+            ],
+            includePaintOrder: true,
+            includeDOMRects: true,
+            includeBlendedBackgroundColors: false,
+            includeTextColorOpacities: false,
+          }
+        ),
+        this.sendCommand<CDP.Accessibility.GetFullAXTreeResponse>(
+          "Accessibility.getFullAXTree"
+        ),
       ]);
 
       return {
         snapshot:
           snapshot.status === "fulfilled"
-            ? (snapshot.value as DOMSnapshot)
-            : { documents: [], strings: [] },
-        domTree:
-          domTree.status === "fulfilled"
-            ? (domTree.value as DOMDocument)
-            : null,
-        axTree:
-          axTree.status === "fulfilled"
-            ? { nodes: (axTree.value as { nodes: AXNode[] }).nodes || [] }
-            : { nodes: [] },
+            ? snapshot.value
+            : {
+                domNodes: [],
+                layoutTreeNodes: [],
+                computedStyles: [],
+              },
+        domTree: domTree.status === "fulfilled" ? domTree.value : null,
+        axTree: axTree.status === "fulfilled" ? axTree.value : { nodes: [] },
         devicePixelRatio: 1.0, // Simplified - use basic scaling
         cdpTiming: { cdp_calls_total: 0 },
       };
@@ -179,8 +161,15 @@ export class DOMService implements IDOMService {
   private buildEnhancedDOMTree(trees: TargetAllTrees): EnhancedDOMTreeNode {
     const { snapshot, domTree, axTree } = trees;
 
+    this.logger.debug("Building enhanced DOM tree", {
+      hasDomTree: !!domTree,
+      hasSnapshot: !!snapshot,
+      snapshotDomNodes: snapshot?.domNodes?.length || 0,
+      axTreeNodes: axTree?.nodes?.length || 0,
+    });
+
     // Build lookups
-    const axTreeLookup: Record<number, AXNode> = {};
+    const axTreeLookup: Record<number, CDP.Accessibility.AXNode> = {};
     for (const axNode of axTree.nodes) {
       if (axNode.backendDOMNodeId) {
         axTreeLookup[axNode.backendDOMNodeId] = axNode;
@@ -204,59 +193,56 @@ export class DOMService implements IDOMService {
   }
 
   /**
-   * Build snapshot lookup (simplified)
+   * Build snapshot lookup using official DOMSnapshot structure
    */
   private buildSnapshotLookup(
-    snapshot: DOMSnapshot,
+    snapshot: CDP.DOMSnapshot.GetSnapshotResponse,
     _devicePixelRatio: number
   ): Record<number, EnhancedSnapshotNode> {
     const lookup: Record<number, EnhancedSnapshotNode> = {};
 
-    if (!snapshot.documents?.[0]) return lookup;
+    if (
+      !snapshot.domNodes ||
+      !snapshot.layoutTreeNodes ||
+      !snapshot.computedStyles
+    ) {
+      return lookup;
+    }
 
-    const { nodeTree, layout } = snapshot.documents[0];
-    if (!nodeTree?.backendNodeId || !layout?.nodeIndex) return lookup;
+    // Create index -> ComputedStyle mapping
+    const computedStyleMap = new Map<number, CDP.DOMSnapshot.ComputedStyle>();
+    snapshot.computedStyles.forEach((style, index) => {
+      computedStyleMap.set(index, style);
+    });
 
-    for (let i = 0; i < nodeTree.backendNodeId.length; i++) {
-      const nodeId = nodeTree.backendNodeId[i];
-      const isClickable = nodeTree.isClickable?.index?.includes(i) || false;
+    // Build lookup from layout tree nodes (using domNodeIndex to map to DOM nodes)
+    for (const layoutNode of snapshot.layoutTreeNodes) {
+      const domNode = snapshot.domNodes[layoutNode.domNodeIndex];
+      if (!domNode) continue;
 
-      let bounds: DOMRect | null = null;
+      const backendNodeId = domNode.backendNodeId;
+
+      let bounds: CDP.DOM.Rect | null = null;
       let computedStyles: Record<string, string> | null = null;
+      const isClickable = false; // Not available in official types, default to false
 
-      const layoutIdx = layout.nodeIndex.indexOf(i);
-      if (
-        layoutIdx >= 0 &&
-        layout.bounds &&
-        layout.bounds[layoutIdx]?.length >= 4
-      ) {
-        const boundsData = layout.bounds[layoutIdx];
-        const [x, y, w, h] = boundsData;
-        bounds = {
-          x,
-          y,
-          width: w,
-          height: h,
-          x1: x,
-          y1: y,
-          x2: x + w,
-          y2: y + h,
-          area: w * h,
-          toDict: function () {
-            return {
-              x: this.x,
-              y: this.y,
-              width: this.width,
-              height: this.height,
-            };
-          },
-        };
-        if (layout.styles?.[layoutIdx]) {
+      // Create bounds from layout node
+      if (layoutNode.boundingBox) {
+        bounds = layoutNode.boundingBox;
+      }
+
+      // Get computed styles
+      if (layoutNode.styleIndex !== undefined) {
+        const style = computedStyleMap.get(layoutNode.styleIndex);
+        if (style?.properties) {
           computedStyles = {};
+          for (const prop of style.properties) {
+            computedStyles[prop.name] = prop.value;
+          }
         }
       }
 
-      lookup[nodeId] = {
+      lookup[backendNodeId] = {
         bounds,
         computedStyles,
         isClickable,
@@ -270,12 +256,21 @@ export class DOMService implements IDOMService {
    * Construct enhanced node (simplified)
    */
   private constructEnhancedNode(
-    node: DOMDocument["root"],
-    axTreeLookup: Record<number, AXNode>,
+    node: CDP.DOM.Node,
+    axTreeLookup: Record<number, CDP.Accessibility.AXNode>,
     snapshotLookup: Record<number, EnhancedSnapshotNode>,
     nodeLookup: Record<number, EnhancedDOMTreeNode>,
     targetId: string
   ): EnhancedDOMTreeNode {
+    // Validate node
+    if (!node || typeof node.nodeId === "undefined") {
+      this.logger.error(
+        "Invalid node provided to constructEnhancedNode:",
+        node
+      );
+      throw new Error("Invalid node: nodeId is undefined");
+    }
+
     // Check if already processed
     if (nodeLookup[node.nodeId]) {
       return nodeLookup[node.nodeId];
@@ -299,34 +294,21 @@ export class DOMService implements IDOMService {
       backendNodeId: node.backendNodeId,
       nodeType: node.nodeType,
       nodeName: node.nodeName,
+      localName: node.localName,
       nodeValue: node.nodeValue || "",
       attributes,
-      isScrollable: node.isScrollable || false,
-      isVisible: undefined, // Will be calculated later
+      isScrollable: false, // Will be calculated from snapshot data if available
+      isVisible: true, // Will be calculated later
       absolutePosition: snapshotData?.bounds || null,
       targetId,
-      frameId: node.frameId || null,
+      frameId: null, // DOMNode doesn't have frameId in official types
       sessionId: null,
-      shadowRootType: node.shadowRootType || null,
+      shadowRootType: null, // Will be set if this is a shadow root
       shadowRoots: [],
-      parentNode: undefined,
+      parentNode: null,
       childrenNodes: [],
       contentDocument: null,
-      axNode: axNode
-        ? {
-            axNodeId: axNode.nodeId,
-            ignored: axNode.ignored,
-            role: axNode.role?.value || null,
-            name: axNode.name?.value || null,
-            description: axNode.description?.value || null,
-            properties:
-              axNode.properties?.map((prop) => ({
-                name: prop.name,
-                value: prop.value?.value ?? null,
-              })) || null,
-            childIds: axNode.childIds || null,
-          }
-        : null,
+      axNode: axNode || null,
       snapshotNode: snapshotData,
       elementIndex: null,
       _compoundChildren: [],
@@ -336,7 +318,7 @@ export class DOMService implements IDOMService {
       get tag() {
         return this.nodeName.toLowerCase();
       },
-      get children() {
+      get actualChildren() {
         return this.childrenNodes || [];
       },
       get childrenAndShadowRoots() {
@@ -345,7 +327,7 @@ export class DOMService implements IDOMService {
         return children;
       },
       get parent() {
-        return this.parentNode || null;
+        return this.parentNode;
       },
       get isActuallyScrollable() {
         return this.isScrollable || false;
@@ -373,8 +355,14 @@ export class DOMService implements IDOMService {
     if (node.children && Array.isArray(node.children)) {
       enhancedNode.childrenNodes = [];
       for (const child of node.children) {
+        // Validate child before processing - child should be a DOM node directly
+        if (!child || typeof child.nodeId === "undefined") {
+          this.logger.warn("Skipping invalid child node:", child);
+          continue;
+        }
+
         const childNode = this.constructEnhancedNode(
-          child.root,
+          child,
           axTreeLookup,
           snapshotLookup,
           nodeLookup,

@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm dev)"
+      "Bash(pnpm dev)",
+      "Bash(pnpm tsc:node:*)",
+      "Bash(pnpm tsc:web:*)",
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm lint)"
     ],
     "deny": [],
     "ask": []
