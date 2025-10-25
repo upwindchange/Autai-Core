@@ -343,10 +343,7 @@ export class DOMService implements IDOMService {
       get elementHash() {
         return 0;
       },
-      get xpath() {
-        return "";
-      },
-    };
+      };
 
     // Store in lookup
     nodeLookup[node.nodeId] = enhancedNode;

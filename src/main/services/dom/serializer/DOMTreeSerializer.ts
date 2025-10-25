@@ -120,7 +120,6 @@ export class DOMTreeSerializer {
       nodeHash: 0,
       interactiveElement: false,
       hasChildren: false,
-      xpath: '',
       tagName: node.tag || '',
       textContent: node.nodeValue || ''
     };

@@ -118,7 +118,6 @@ export interface EnhancedDOMTreeNode
 
   // Helper properties (custom for app logic)
   tag?: string;
-  xpath?: string;
 
   // Methods (custom for app logic)
   get actualChildren(): EnhancedDOMTreeNode[];
@@ -215,7 +214,6 @@ export interface SimplifiedNode {
   // Helper properties (required for object creation)
   interactiveElement: boolean;
   hasChildren: boolean;
-  xpath: string;
   tagName: string;
   textContent: string;
 }
