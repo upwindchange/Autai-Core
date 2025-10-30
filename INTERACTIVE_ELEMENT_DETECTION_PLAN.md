@@ -37,30 +37,11 @@
   - `hasAccessibilityInteractivity(node: EnhancedDOMTreeNode): boolean`
   - `isIconSizedInteractive(node: EnhancedDOMTreeNode): boolean`
 
-#### 1.2 Enhanced Tag Detection
-- **Current:** 8 basic interactive tags
-- **Enhanced:** 11 interactive tags + details/summary for disclosure widgets
-- **Add:** `'details', 'summary', 'optgroup'` to INTERACTIVE_TAGS
 
 #### 1.3 Search Element Detection
 - **Implement:** Search indicator detection in class names, IDs, and data attributes
 - **Patterns:** 11 search indicators including 'search', 'magnify', 'glass', 'lookup', 'find', 'query', etc.
 - **Method:** Case-insensitive substring matching across attributes
-
-### Phase 2: Advanced Accessibility Integration
-
-#### 2.1 Enhanced Accessibility Property Analysis
-- **Current:** Only 'focusable' boolean checking
-- **Enhanced:** 12+ accessibility properties:
-  - **Direct Interactivity:** `focusable`, `editable`, `settable`
-  - **Interactive States:** `checked`, `expanded`, `pressed`, `selected`
-  - **Form Properties:** `required`, `autocomplete`, `keyshortcuts`
-  - **Blockers:** `disabled`, `hidden` (returns false if true)
-
-#### 2.2 Accessibility Role Expansion
-- **Current:** 6 basic ARIA roles
-- **Enhanced:** 12 comprehensive roles:
-  - `'button', 'link', 'menuitem', 'option', 'radio', 'checkbox', 'tab', 'textbox', 'combobox', 'slider', 'spinbutton', 'search', 'searchbox'`
 
 ### Phase 3: Size-Based Filtering System
 
@@ -76,61 +57,11 @@
 
 ### Phase 4: Event Handler and Cursor Detection
 
-#### 4.1 Event Handler Detection
-- **Current:** Only `onclick` detection
-- **Enhanced:** 6 event handlers:
-  - `onclick`, `onmousedown`, `onmouseup`, `onkeydown`, `onkeyup`, `tabindex`
 
 #### 4.2 Cursor Style Fallback
 - **Implement:** Cursor style detection from snapshot data
 - **Logic:** Elements with `cursor_style === 'pointer'` as final fallback
 - **Integration:** Use `snapshotNode.cursorStyle` property
-
-### Phase 5: Compound Component Foundation
-
-#### 5.1 Compound Component Infrastructure
-- **Enhance:** Existing `_compoundChildren` property support
-- **Types:** Define compound component types for date/time, range, number, color, file inputs
-- **Integration:** Prepare serializer to handle virtual components
-
-#### 5.2 Form Element Enhancement
-- **Implement:** Advanced form element detection
-- **Features:** Required attributes, autocomplete, validation properties
-- **Benefits:** Better interaction prediction for form controls
-
-### Phase 6: Integration and Optimization
-
-#### 6.1 Update DOMTreeSerializer
-- **Replace:** Current basic `isInteractive()` method
-- **Integrate:** New `InteractiveElementDetector` class
-- **Maintain:** Backward compatibility with existing serialization
-
-#### 6.2 Caching and Performance
-- **Implement:** Node-level caching for interactive detection results
-- **Optimize:** Avoid redundant accessibility property checks
-- **Performance:** Lazy evaluation for expensive operations
-
-## Implementation Priority
-
-### Week 1: Foundation
-- Core detector class structure
-- Enhanced tag detection
-- Basic search element detection
-
-### Week 2: Accessibility Integration
-- Enhanced accessibility property analysis
-- Expanded ARIA role detection
-- Size-based filtering foundation
-
-### Week 3: Advanced Features
-- Event handler detection
-- Cursor style fallback
-- Icon and small element detection
-
-### Week 4: Integration & Polish
-- Compound component foundation
-- DOMTreeSerializer integration
-- Performance optimization and caching
 
 ## Files to Create/Modify
 
@@ -202,23 +133,6 @@ const FORM_PROPERTIES = ['required', 'autocomplete', 'keyshortcuts'];
 const BLOCKER_PROPERTIES = ['disabled', 'hidden'];
 ```
 
-### Enhanced Interactive Tags
-
-```typescript
-const ENHANCED_INTERACTIVE_TAGS = [
-  'button', 'input', 'select', 'textarea', 'a',
-  'details', 'summary', 'option', 'optgroup', 'iframe', 'frame'
-];
-```
-
-### Event Handler Detection
-
-```typescript
-const EVENT_HANDLERS = [
-  'onclick', 'onmousedown', 'onmouseup',
-  'onkeydown', 'onkeyup', 'tabindex'
-];
-```
 
 ## Expected Outcomes
 

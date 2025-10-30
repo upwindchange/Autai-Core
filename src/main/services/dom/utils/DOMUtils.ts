@@ -4,6 +4,7 @@
 
 import type { EnhancedSnapshotNode } from "@shared/dom";
 import type { Protocol as CDP } from "devtools-protocol";
+import type { WebContents } from "electron";
 
 /**
  * Build snapshot lookup using official DOMSnapshot structure
@@ -170,4 +171,69 @@ export function calculateScrollPercentage(
     vertical: Math.round(vertical * 10) / 10,
     horizontal: Math.round(horizontal * 10) / 10,
   };
+}
+
+// CDP Utility Functions
+
+/**
+ * Send CDP command with timeout and error handling
+ */
+export async function sendCDPCommand<T = unknown>(
+  webContents: WebContents,
+  method: string,
+  params?: unknown,
+  logger?: any
+): Promise<T> {
+  try {
+    logger?.debug?.(`Sending command: ${method}`, params);
+
+    const result = await Promise.race([
+      webContents.debugger.sendCommand(method, params),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`Command ${method} timed out after 10s`)),
+          10000
+        )
+      ),
+    ]);
+
+    logger?.debug?.(`Command ${method} completed successfully`);
+    return result as T;
+  } catch (error) {
+    logger?.error?.(`Command ${method} failed:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Attach debugger to WebContents
+ */
+export async function attachDebugger(webContents: WebContents, logger?: any): Promise<void> {
+  try {
+    webContents.debugger.attach("1.3");
+    logger?.info?.("Debugger attached");
+  } catch (error) {
+    logger?.error?.(`Failed to attach debugger: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Detach debugger from WebContents
+ */
+export async function detachDebugger(webContents: WebContents, logger?: any): Promise<void> {
+  try {
+    webContents.debugger.detach();
+    logger?.info?.("Debugger detached");
+  } catch (error) {
+    logger?.error?.(`Failed to detach debugger: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * Check if debugger is attached
+ */
+export function isDebuggerAttached(webContents: WebContents): boolean {
+  return webContents.debugger.isAttached();
 }

@@ -68,7 +68,7 @@ function createWindow() {
     try {
       if (domService) {
         await domService.initialize();
-        await domService.getDOMTree();
+        await domService.getSerializedDOMTree();
         logger.info(`DOM tree processed successfully - tree construction complete`);
       }
     } catch (error) {

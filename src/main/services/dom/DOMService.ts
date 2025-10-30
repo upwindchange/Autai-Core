@@ -17,6 +17,7 @@ import type {
   EnhancedSnapshotNode,
 } from "@shared/dom";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
+import { sendCDPCommand, attachDebugger, detachDebugger, isDebuggerAttached } from "./utils/DOMUtils";
 
 export class DOMService implements IDOMService {
   private webContents: WebContents;
@@ -26,54 +27,24 @@ export class DOMService implements IDOMService {
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
-    this.serializer = new DOMTreeSerializer();
+    this.serializer = new DOMTreeSerializer(webContents);
     this.logger.info("DOMService initialized - direct CDP integration");
   }
 
   async sendCommand<T = unknown>(method: string, params?: unknown): Promise<T> {
-    try {
-      this.logger.debug(`Sending command: ${method}`, params);
-
-      const result = await Promise.race([
-        this.webContents.debugger.sendCommand(method, params),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Command ${method} timed out after 10s`)),
-            10000
-          )
-        ),
-      ]);
-
-      this.logger.debug(`Command ${method} completed successfully`);
-      return result as T;
-    } catch (error) {
-      this.logger.error(`Command ${method} failed:`, error);
-      throw error;
-    }
+    return sendCDPCommand<T>(this.webContents, method, params, this.logger);
   }
 
   async attach(): Promise<void> {
-    try {
-      this.webContents.debugger.attach("1.3");
-      this.logger.info("Debugger attached");
-    } catch (error) {
-      this.logger.error(`Failed to attach debugger: ${error}`);
-      throw error;
-    }
+    return attachDebugger(this.webContents, this.logger);
   }
 
   async detach(): Promise<void> {
-    try {
-      this.webContents.debugger.detach();
-      this.logger.info("Debugger detached");
-    } catch (error) {
-      this.logger.error(`Failed to detach debugger: ${error}`);
-      throw error;
-    }
+    return detachDebugger(this.webContents, this.logger);
   }
 
   isAttached(): boolean {
-    return this.webContents.debugger.isAttached();
+    return isDebuggerAttached(this.webContents);
   }
 
   async getDOMTree(): Promise<EnhancedDOMTreeNode> {
@@ -529,8 +500,9 @@ export class DOMService implements IDOMService {
       };
 
       return {
-        ...result,
+        serializedState: result.serializedState,
         timing: convertedTiming,
+        stats: result.stats,
       };
     } catch (error) {
       this.logger.error(`Failed to serialize DOM tree: ${error}`);

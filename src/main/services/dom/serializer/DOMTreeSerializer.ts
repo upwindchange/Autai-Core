@@ -11,19 +11,14 @@ import type {
   SimplifiedNode,
   DOMSelectorMap,
   SerializationConfig,
-  SerializationStats
+  SerializationStats,
 } from "@shared/dom";
+import type { WebContents } from "electron";
 
-// Simple interactive element tags
-const INTERACTIVE_TAGS = [
-  'button', 'input', 'select', 'textarea', 'a',
-  'option', 'label', 'iframe', 'frame'
-];
+import { InteractiveElementDetector } from "./InteractiveElementDetector";
 
 // Tags that should be skipped
-const SKIP_TAGS = [
-  'style', 'script', 'head', 'meta', 'link', 'title'
-];
+const SKIP_TAGS = ["style", "script", "head", "meta", "link", "title"];
 
 /**
  * Simplified timing info
@@ -38,8 +33,9 @@ export interface SerializationTiming {
 export class DOMTreeSerializer {
   private config: SerializationConfig;
   private interactiveCounter = 1;
+  private interactiveDetector: InteractiveElementDetector;
 
-  constructor(config: Partial<SerializationConfig> = {}) {
+  constructor(webContents: WebContents, config: Partial<SerializationConfig> = {}) {
     this.config = {
       enablePaintOrderFiltering: true,
       enableBoundingBoxFiltering: true,
@@ -47,8 +43,11 @@ export class DOMTreeSerializer {
       opacityThreshold: 0.8,
       containmentThreshold: 0.99,
       maxInteractiveElements: 1000,
-      ...config
+      ...config,
     };
+
+    // Initialize the interactive element detector
+    this.interactiveDetector = new InteractiveElementDetector(webContents);
   }
 
   /**
@@ -68,8 +67,8 @@ export class DOMTreeSerializer {
     // Reset counter
     this.interactiveCounter = 1;
 
-    // Single-pass serialization
-    const simplifiedRoot = this.createSimplifiedNode(rootNode);
+    // Single-pass serialization with on-the-fly highlighting
+    const simplifiedRoot = await this.createSimplifiedNode(rootNode);
     if (!simplifiedRoot) {
       throw new Error("Root node was filtered out during serialization");
     }
@@ -77,23 +76,25 @@ export class DOMTreeSerializer {
     const stats = this.calculateStats(simplifiedRoot);
 
     const timing = {
-      serialize_dom_tree_total: Date.now() - startTime
+      serialize_dom_tree_total: Date.now() - startTime,
     };
 
     return {
       serializedState: {
         root: simplifiedRoot,
-        selectorMap
+        selectorMap,
       },
       timing,
-      stats
+      stats,
     };
   }
 
   /**
-   * Create simplified node (single pass)
+   * Create simplified node (single pass with on-the-fly highlighting)
    */
-  private createSimplifiedNode(node: EnhancedDOMTreeNode): SimplifiedNode | null {
+  private async createSimplifiedNode(
+    node: EnhancedDOMTreeNode
+  ): Promise<SimplifiedNode | null> {
     // Skip certain tags
     if (node.tag && SKIP_TAGS.includes(node.tag)) {
       return null;
@@ -120,14 +121,14 @@ export class DOMTreeSerializer {
       nodeHash: 0,
       interactiveElement: false,
       hasChildren: false,
-      tagName: node.tag || '',
-      textContent: node.nodeValue || ''
+      tagName: node.tag || "",
+      textContent: node.nodeValue || "",
     };
 
     // Process children
     if (node.actualChildren) {
       for (const child of node.actualChildren) {
-        const simplifiedChild = this.createSimplifiedNode(child);
+        const simplifiedChild = await this.createSimplifiedNode(child);
         if (simplifiedChild) {
           simplified.children.push(simplifiedChild);
         }
@@ -137,17 +138,20 @@ export class DOMTreeSerializer {
     // Process shadow roots
     if (node.shadowRoots) {
       for (const shadowRoot of node.shadowRoots) {
-        const simplifiedShadow = this.createSimplifiedNode(shadowRoot);
+        const simplifiedShadow = await this.createSimplifiedNode(shadowRoot);
         if (simplifiedShadow) {
           simplified.children.push(simplifiedShadow);
         }
       }
     }
 
-    // Check if interactive
-    if (this.isInteractive(node) && simplified.shouldDisplay) {
-      simplified.interactiveIndex = this.interactiveCounter++;
-      simplified.interactiveElement = true;
+    // Check if interactive using the dedicated detector with on-the-fly highlighting
+    if (simplified.shouldDisplay) {
+      const isInteractive = await this.interactiveDetector.isInteractive(node);
+      if (isInteractive) {
+        simplified.interactiveIndex = this.interactiveCounter++;
+        simplified.interactiveElement = true;
+      }
     }
 
     // Add basic compound components
@@ -160,97 +164,61 @@ export class DOMTreeSerializer {
   }
 
   /**
-   * Check if element is interactive (simplified detection)
-   */
-  private isInteractive(node: EnhancedDOMTreeNode): boolean {
-    if (!node.tag) return false;
-    const tag = node.tag.toLowerCase();
-
-    // Check interactive tags
-    if (INTERACTIVE_TAGS.includes(tag)) {
-      return true;
-    }
-
-    // Check for onclick handlers
-    if (node.attributes?.onclick) {
-      return true;
-    }
-
-    // Check ARIA roles
-    if (node.attributes?.role) {
-      const role = node.attributes.role.toLowerCase();
-      if (['button', 'link', 'checkbox', 'radio', 'tab', 'menuitem'].includes(role)) {
-        return true;
-      }
-    }
-
-    // Check for input-like attributes
-    if (node.attributes?.contenteditable === 'true') {
-      return true;
-    }
-
-    // Check accessibility properties
-    if (node.axNode?.properties) {
-      for (const prop of node.axNode.properties) {
-        if (prop.name === 'focusable' && prop.value?.type === 'boolean' && prop.value.value === true) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /**
    * Add basic compound components (simplified)
    */
-  private addCompoundComponents(simplified: SimplifiedNode, node: EnhancedDOMTreeNode): void {
+  private addCompoundComponents(
+    simplified: SimplifiedNode,
+    node: EnhancedDOMTreeNode
+  ): void {
     if (!node.tag) return;
     const tag = node.tag.toLowerCase();
     const type = node.attributes?.type?.toLowerCase();
 
     // Date input
-    if (tag === 'input' && ['date', 'time', 'datetime-local', 'month'].includes(type || '')) {
+    if (
+      tag === "input" &&
+      ["date", "time", "datetime-local", "month"].includes(type || "")
+    ) {
       simplified.isCompoundComponent = true;
       node._compoundChildren = [
-        { role: 'spinbutton', name: 'Day', valuemin: 1, valuemax: 31 },
-        { role: 'spinbutton', name: 'Month', valuemin: 1, valuemax: 12 }
+        { role: "spinbutton", name: "Day", valuemin: 1, valuemax: 31 },
+        { role: "spinbutton", name: "Month", valuemin: 1, valuemax: 12 },
       ];
     }
 
     // Range input
-    if (tag === 'input' && type === 'range') {
+    if (tag === "input" && type === "range") {
       simplified.isCompoundComponent = true;
       node._compoundChildren = [
-        { role: 'slider', name: 'Value', valuemin: 0, valuemax: 100 }
+        { role: "slider", name: "Value", valuemin: 0, valuemax: 100 },
       ];
     }
 
     // Number input
-    if (tag === 'input' && type === 'number') {
+    if (tag === "input" && type === "number") {
       simplified.isCompoundComponent = true;
       node._compoundChildren = [
-        { role: 'button', name: 'Increment' },
-        { role: 'button', name: 'Decrement' },
-        { role: 'textbox', name: 'Value' }
+        { role: "button", name: "Increment" },
+        { role: "button", name: "Decrement" },
+        { role: "textbox", name: "Value" },
       ];
     }
 
     // Select dropdown
-    if (tag === 'select') {
+    if (tag === "select") {
       simplified.isCompoundComponent = true;
       node._compoundChildren = [
-        { role: 'button', name: 'Dropdown Toggle' },
-        { role: 'listbox', name: 'Options' }
+        { role: "button", name: "Dropdown Toggle" },
+        { role: "listbox", name: "Options" },
       ];
     }
 
     // File input
-    if (tag === 'input' && type === 'file') {
+    if (tag === "input" && type === "file") {
       simplified.isCompoundComponent = true;
       node._compoundChildren = [
-        { role: 'button', name: 'Browse Files' },
-        { role: 'textbox', name: 'Files Selected' }
+        { role: "button", name: "Browse Files" },
+        { role: "textbox", name: "Files Selected" },
       ];
     }
   }
@@ -309,7 +277,7 @@ export class DOMTreeSerializer {
       newElements,
       occludedNodes: 0,
       containedNodes: 0,
-      compoundComponents: 0
+      compoundComponents: 0,
     };
   }
 
@@ -319,4 +287,5 @@ export class DOMTreeSerializer {
   getConfig(): SerializationConfig {
     return this.config;
   }
-}
+
+  }
