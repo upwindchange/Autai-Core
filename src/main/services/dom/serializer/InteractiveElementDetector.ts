@@ -7,6 +7,7 @@
  */
 
 import type { EnhancedDOMTreeNode } from "@shared/dom";
+import { NodeType } from "@shared/dom";
 import type { WebContents } from "electron";
 import log from "electron-log/main";
 import { sendCDPCommand } from "../utils/DOMUtils";
@@ -27,6 +28,12 @@ const DIRECT_INTERACTIVITY = ['focusable', 'editable', 'settable'];
 const INTERACTIVE_STATES = ['checked', 'expanded', 'pressed', 'selected'];
 const FORM_PROPERTIES = ['required', 'autocomplete', 'keyshortcuts'];
 const BLOCKER_PROPERTIES = ['disabled', 'hidden'];
+
+// Search element indicators for comprehensive search detection
+const SEARCH_INDICATORS = [
+  'search', 'magnify', 'glass', 'lookup', 'find', 'query',
+  'search-icon', 'search-btn', 'search-button', 'searchbox'
+];
 
 /**
  * Interactive Element Detector Class
@@ -61,79 +68,90 @@ export class InteractiveElementDetector {
    * @returns boolean indicating if the element is interactive
    */
   async getDetectionTier(node: EnhancedDOMTreeNode): Promise<boolean> {
-    // Tier 1: Quick filters
-    if (!this.checkNodeType(node)) return false;
-    if (this.checkSkippedElements(node)) return false;
-    if (this.checkIframeSize(node)) {
-      await this.highlightElement(node, "tier1");
-      return true; // Special case for iframes
-    }
+    try {
+      // Basic validation
+      if (!node) {
+        this.logger.warn("Node is null or undefined");
+        return false;
+      }
 
-    // Tier 2: Search detection
-    if (this.checkSearchElements(node)) {
-      await this.highlightElement(node, "tier2");
-      return true;
-    }
-    if (this.checkSpecializedTags(node)) {
-      await this.highlightElement(node, "tier2");
-      return true;
-    }
+      // Tier 1: Quick filters
+      if (!this.checkNodeType(node)) return false;
+      if (this.checkSkippedElements(node)) return false;
+      if (this.checkIframeSize(node)) {
+        await this.highlightElement(node, "tier1");
+        return true; // Special case for iframes
+      }
 
-    // Tier 3: Attribute-based detection
-    if (this.checkEventHandlers(node)) {
-      await this.highlightElement(node, "tier3");
-      return true;
-    }
-    if (this.checkARIAAttributes(node)) {
-      await this.highlightElement(node, "tier3");
-      return true;
-    }
-    if (this.checkInputAttributes(node)) {
-      await this.highlightElement(node, "tier3");
-      return true;
-    }
+      // Tier 2: Search detection
+      if (this.checkSearchElements(node)) {
+        await this.highlightElement(node, "tier2");
+        return true;
+      }
+      if (this.checkSpecializedTags(node)) {
+        await this.highlightElement(node, "tier2");
+        return true;
+      }
 
-    // Tier 4: Accessibility tree analysis
-    if (this.checkAccessibilityProperties(node)) {
-      await this.highlightElement(node, "tier4");
-      return true;
-    }
-    if (this.checkAccessibilityRoles(node)) {
-      await this.highlightElement(node, "tier4");
-      return true;
-    }
+      // Tier 3: Attribute-based detection
+      if (this.checkEventHandlers(node)) {
+        await this.highlightElement(node, "tier3");
+        return true;
+      }
+      if (this.checkARIAAttributes(node)) {
+        await this.highlightElement(node, "tier3");
+        return true;
+      }
+      if (this.checkInputAttributes(node)) {
+        await this.highlightElement(node, "tier3");
+        return true;
+      }
 
-    // Tier 5: Visual/structural indicators
-    if (this.checkIconElements(node)) {
-      await this.highlightElement(node, "tier5");
-      return true;
-    }
-    if (this.checkCursorStyle(node)) {
-      await this.highlightElement(node, "tier5");
-      return true;
-    }
+      // Tier 4: Accessibility tree analysis
+      if (this.checkAccessibilityProperties(node)) {
+        await this.highlightElement(node, "tier4");
+        return true;
+      }
+      if (this.checkAccessibilityRoles(node)) {
+        await this.highlightElement(node, "tier4");
+        return true;
+      }
 
-    return false;
+      // Tier 5: Visual/structural indicators
+      if (this.checkIconElements(node)) {
+        await this.highlightElement(node, "tier5");
+        return true;
+      }
+      if (this.checkCursorStyle(node)) {
+        await this.highlightElement(node, "tier5");
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      this.logger.error(`Error in getDetectionTier for node ${node.nodeId}:`, error);
+      return false;
+    }
   }
 
   // Tier 1: Quick Filters
 
   /**
-   * Check if node is an element node (placeholder)
-   * TODO: Implement proper node type filtering
+   * Check if node is an element node
+   * Only ELEMENT_NODE (nodeType: 1) can be interactive
    */
-  private checkNodeType(_node: EnhancedDOMTreeNode): boolean {
-    // Placeholder - will implement node type filtering later
-    return true;
+  private checkNodeType(node: EnhancedDOMTreeNode): boolean {
+    return node.nodeType === NodeType.ELEMENT_NODE;
   }
 
   /**
-   * Check if element should be skipped (placeholder)
-   * TODO: Implement HTML/body element exclusion
+   * Check if element should be skipped
+   * HTML and BODY elements are not interactive by themselves
    */
-  private checkSkippedElements(_node: EnhancedDOMTreeNode): boolean {
-    // Placeholder - will implement element skipping logic later
-    return false;
+  private checkSkippedElements(node: EnhancedDOMTreeNode): boolean {
+    if (!node.tag) return false;
+    const tag = node.tag.toLowerCase();
+    return tag === 'html' || tag === 'body';
   }
 
   /**
@@ -148,11 +166,44 @@ export class InteractiveElementDetector {
   // Tier 2: Search Element Detection
 
   /**
-   * Check for search-related elements (placeholder)
-   * TODO: Implement search indicator detection (11 indicators)
+   * Check for search-related elements
+   * Detects search indicators in class names, IDs, and data attributes
    */
-  private checkSearchElements(_node: EnhancedDOMTreeNode): boolean {
-    // Placeholder - will implement search element detection later
+  private checkSearchElements(node: EnhancedDOMTreeNode): boolean {
+    if (!node.attributes) return false;
+
+    // Check class name for search indicators
+    if (node.attributes.class) {
+      const className = node.attributes.class.toLowerCase();
+      for (const indicator of SEARCH_INDICATORS) {
+        if (className.includes(indicator)) {
+          return true;
+        }
+      }
+    }
+
+    // Check ID for search indicators
+    if (node.attributes.id) {
+      const id = node.attributes.id.toLowerCase();
+      for (const indicator of SEARCH_INDICATORS) {
+        if (id.includes(indicator)) {
+          return true;
+        }
+      }
+    }
+
+    // Check data attributes for search indicators
+    for (const [attrName, attrValue] of Object.entries(node.attributes)) {
+      if (attrName.startsWith('data-') && attrValue) {
+        const value = attrValue.toLowerCase();
+        for (const indicator of SEARCH_INDICATORS) {
+          if (value.includes(indicator)) {
+            return true;
+          }
+        }
+      }
+    }
+
     return false;
   }
 
@@ -248,12 +299,26 @@ export class InteractiveElementDetector {
   }
 
   /**
-   * Check accessibility tree roles (placeholder)
-   * TODO: Implement AX tree role checking
+   * Check accessibility tree roles
+   * Detects interactive elements based on their accessibility roles
    */
-  private checkAccessibilityRoles(_node: EnhancedDOMTreeNode): boolean {
-    // Placeholder - will implement accessibility tree role checking later
-    return false;
+  private checkAccessibilityRoles(node: EnhancedDOMTreeNode): boolean {
+    if (!node.axNode?.role?.value) return false;
+
+    const role = node.axNode.role.value.toString().toLowerCase();
+
+    // Comprehensive list of interactive accessibility roles
+    const interactiveRoles = [
+      'button', 'link', 'menuitem', 'option', 'radio', 'checkbox', 'tab',
+      'textbox', 'combobox', 'slider', 'spinbutton', 'search', 'searchbox',
+      'gridcell', 'rowheader', 'columnheader', 'treeitem', 'switch', 'menubar',
+      'menu', 'listbox', 'tree', 'grid', 'application', 'group', 'radiogroup',
+      'list', 'row', 'table', 'tooltip', 'dialog', 'alertdialog', 'document',
+      'article', 'feed', 'figure', 'img', 'banner', 'complementary', 'contentinfo',
+      'form', 'main', 'navigation', 'region', 'status', 'timer'
+    ];
+
+    return interactiveRoles.includes(role);
   }
 
   // Tier 5: Visual/Structural Indicators
@@ -268,12 +333,12 @@ export class InteractiveElementDetector {
   }
 
   /**
-   * Check cursor style indicators (placeholder)
-   * TODO: Implement cursor style fallback detection
+   * Check cursor style indicators
+   * Uses cursor style as final fallback for detecting interactive elements
    */
-  private checkCursorStyle(_node: EnhancedDOMTreeNode): boolean {
-    // Placeholder - will implement cursor style detection later
-    return false;
+  private checkCursorStyle(node: EnhancedDOMTreeNode): boolean {
+    // Check if the element has pointer cursor style
+    return node.snapshotNode?.cursorStyle === 'pointer';
   }
 
   /**
