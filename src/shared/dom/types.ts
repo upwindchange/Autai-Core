@@ -63,8 +63,6 @@ export interface EnhancedSnapshotNode
   stackingContexts?: number;
 }
 
-
-
 // Enhanced DOM tree node - extends official DOM.Node with app-specific properties
 export interface EnhancedDOMTreeNode
   extends Omit<

@@ -5,6 +5,7 @@
 import type { EnhancedSnapshotNode } from "@shared/dom";
 import type { Protocol as CDP } from "devtools-protocol";
 import type { WebContents } from "electron";
+import type { LogFunctions } from "electron-log/src";
 
 /**
  * Build snapshot lookup using official DOMSnapshot structure
@@ -15,7 +16,11 @@ export function buildSnapshotLookup(
 ): Record<number, EnhancedSnapshotNode> {
   const lookup: Record<number, EnhancedSnapshotNode> = {};
 
-  if (!snapshot.domNodes || !snapshot.layoutTreeNodes || !snapshot.computedStyles) {
+  if (
+    !snapshot.domNodes ||
+    !snapshot.layoutTreeNodes ||
+    !snapshot.computedStyles
+  ) {
     return lookup;
   }
 
@@ -39,7 +44,7 @@ export function buildSnapshotLookup(
         x: layoutNode.boundingBox.x / devicePixelRatio,
         y: layoutNode.boundingBox.y / devicePixelRatio,
         width: layoutNode.boundingBox.width / devicePixelRatio,
-        height: layoutNode.boundingBox.height / devicePixelRatio
+        height: layoutNode.boundingBox.height / devicePixelRatio,
       };
     }
     if (layoutNode.styleIndex !== undefined) {
@@ -70,21 +75,23 @@ export function buildSnapshotLookup(
 /**
  * Check if element is visible
  */
-export function isElementVisible(computedStyles: Record<string, string> | null): boolean {
+export function isElementVisible(
+  computedStyles: Record<string, string> | null
+): boolean {
   if (!computedStyles) return true;
 
   const display = computedStyles.display?.toLowerCase();
   const visibility = computedStyles.visibility?.toLowerCase();
-  const opacity = parseFloat(computedStyles.opacity || '1');
+  const opacity = parseFloat(computedStyles.opacity || "1");
 
-  return display !== 'none' && visibility !== 'hidden' && opacity > 0;
+  return display !== "none" && visibility !== "hidden" && opacity > 0;
 }
 
 /**
  * Check if element is clickable
  */
 export function isElementClickable(cursorStyle?: string): boolean {
-  return cursorStyle === 'pointer';
+  return cursorStyle === "pointer";
 }
 
 /**
@@ -93,7 +100,14 @@ export function isElementClickable(cursorStyle?: string): boolean {
 export function extractScrollInfo(
   scrollRects: CDP.DOM.Rect | null,
   clientRects: CDP.DOM.Rect | null
-): { scrollTop: number; scrollLeft: number; scrollableHeight: number; scrollableWidth: number; visibleHeight: number; visibleWidth: number } | null {
+): {
+  scrollTop: number;
+  scrollLeft: number;
+  scrollableHeight: number;
+  scrollableWidth: number;
+  visibleHeight: number;
+  visibleWidth: number;
+} | null {
   if (!scrollRects || !clientRects) return null;
 
   return {
@@ -116,14 +130,15 @@ export function isElementScrollable(
 ): boolean {
   if (!scrollRects || !clientRects) return false;
 
-  const hasScroll = scrollRects.height > clientRects.height + 1 ||
-                   scrollRects.width > clientRects.width + 1;
+  const hasScroll =
+    scrollRects.height > clientRects.height + 1 ||
+    scrollRects.width > clientRects.width + 1;
 
   if (!hasScroll) return false;
 
   if (computedStyles) {
-    const overflow = computedStyles.overflow?.toLowerCase() || 'visible';
-    return ['auto', 'scroll'].includes(overflow);
+    const overflow = computedStyles.overflow?.toLowerCase() || "visible";
+    return ["auto", "scroll"].includes(overflow);
   }
 
   return true;
@@ -152,7 +167,14 @@ export function calculateAbsolutePosition(
  */
 export function calculateScrollPercentage(
   _elementBounds: CDP.DOM.Rect,
-  scrollInfo: { scrollTop: number; scrollLeft: number; scrollableHeight: number; scrollableWidth: number; visibleHeight: number; visibleWidth: number }
+  scrollInfo: {
+    scrollTop: number;
+    scrollLeft: number;
+    scrollableHeight: number;
+    scrollableWidth: number;
+    visibleHeight: number;
+    visibleWidth: number;
+  }
 ): { vertical: number; horizontal: number } {
   let vertical = 0;
   let horizontal = 0;
@@ -182,11 +204,9 @@ export async function sendCDPCommand<T = unknown>(
   webContents: WebContents,
   method: string,
   params?: unknown,
-  logger?: any
+  logger?: LogFunctions
 ): Promise<T> {
   try {
-    logger?.debug?.(`Sending command: ${method}`, params);
-
     const result = await Promise.race([
       webContents.debugger.sendCommand(method, params),
       new Promise<never>((_, reject) =>
@@ -197,10 +217,9 @@ export async function sendCDPCommand<T = unknown>(
       ),
     ]);
 
-    logger?.debug?.(`Command ${method} completed successfully`);
     return result as T;
   } catch (error) {
-    logger?.error?.(`Command ${method} failed:`, error);
+    logger?.error(`Command ${method} failed:`, error);
     throw error;
   }
 }
@@ -208,12 +227,15 @@ export async function sendCDPCommand<T = unknown>(
 /**
  * Attach debugger to WebContents
  */
-export async function attachDebugger(webContents: WebContents, logger?: any): Promise<void> {
+export async function attachDebugger(
+  webContents: WebContents,
+  logger?: LogFunctions
+): Promise<void> {
   try {
     webContents.debugger.attach("1.3");
-    logger?.info?.("Debugger attached");
+    logger?.info("Debugger attached");
   } catch (error) {
-    logger?.error?.(`Failed to attach debugger: ${error}`);
+    logger?.error(`Failed to attach debugger: ${error}`);
     throw error;
   }
 }
@@ -221,12 +243,15 @@ export async function attachDebugger(webContents: WebContents, logger?: any): Pr
 /**
  * Detach debugger from WebContents
  */
-export async function detachDebugger(webContents: WebContents, logger?: any): Promise<void> {
+export async function detachDebugger(
+  webContents: WebContents,
+  logger?: LogFunctions
+): Promise<void> {
   try {
     webContents.debugger.detach();
-    logger?.info?.("Debugger detached");
+    logger?.info("Debugger detached");
   } catch (error) {
-    logger?.error?.(`Failed to detach debugger: ${error}`);
+    logger?.error(`Failed to detach debugger: ${error}`);
     throw error;
   }
 }

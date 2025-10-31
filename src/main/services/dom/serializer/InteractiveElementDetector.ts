@@ -90,6 +90,48 @@ const SIZE_THRESHOLDS = {
   OPACITY_THRESHOLD: 0.8, // Minimum opacity for interactive elements
 } as const;
 
+// Compound Control Detection Constants (ported from browser-use)
+
+// Input types that should be virtualized as compound controls
+const COMPOUND_INPUT_TYPES = [
+  "range",
+  "number",
+  "color",
+  "file",
+  "date",
+  "time",
+  "datetime-local",
+  "month",
+  "week",
+];
+
+// Elements that should be virtualized as compound controls
+const COMPOUND_ELEMENT_TAGS = ["select", "details", "audio", "video"];
+
+// ARIA roles that should be virtualized as compound controls
+const COMPOUND_ARIA_ROLES = ["combobox", "slider", "spinbutton", "listbox"];
+
+// Propagating elements that can contain child interactive elements
+const PROPAGATING_ELEMENTS = [
+  { tag: "a", role: null },
+  { tag: "button", role: null },
+  { tag: "div", role: "button" },
+  { tag: "div", role: "combobox" },
+  { tag: "input", role: "combobox" },
+];
+
+// Default containment threshold for bounds propagation
+const DEFAULT_CONTAINMENT_THRESHOLD = 0.99;
+
+// Compound control highlighting colors
+const COMPOUND_HIGHLIGHT_COLORS = {
+  input: "#9B59B6", // Purple - Input controls
+  select: "#3498DB", // Blue - Select controls
+  media: "#E67E22", // Orange - Media controls
+  details: "#1ABC9C", // Teal - Details/summary
+  custom: "#F39C12", // Gold - Custom compound controls
+} as const;
+
 // Icon detection attributes
 const ICON_ATTRIBUTES = [
   "class",
@@ -293,6 +335,12 @@ export class InteractiveElementDetector {
       }
       if (this.checkCursorStyle(node)) {
         await this.highlightElement(node, "tier5");
+        return true;
+      }
+
+      // Tier 6: Compound control detection
+      if (await this.checkCompoundControls(node)) {
+        await this.highlightElement(node, "compound");
         return true;
       }
 
@@ -761,6 +809,659 @@ export class InteractiveElementDetector {
   }
 
   /**
+   * Check for compound controls
+   * Detects complex form controls that should be virtualized
+   */
+  private async checkCompoundControls(
+    node: EnhancedDOMTreeNode
+  ): Promise<boolean> {
+    if (!this.canVirtualize(node)) {
+      return false;
+    }
+
+    // Build compound components for the element
+    await this.addCompoundComponents(node);
+
+    // Element is considered interactive if it has compound components
+    return !!(node._compoundChildren && node._compoundChildren.length > 0);
+  }
+
+  // ==================== COMPOUND CONTROL DETECTION ====================
+
+  /**
+   * Check if element can be virtualized as a compound control
+   */
+  canVirtualize(node: EnhancedDOMTreeNode): boolean {
+    if (!node.tag) return false;
+
+    const tag = node.tag.toLowerCase();
+    const inputType = node.attributes.type?.toLowerCase();
+    const ariaRole = node.attributes.role?.toLowerCase();
+
+    // Check input types
+    if (
+      tag === "input" &&
+      inputType &&
+      COMPOUND_INPUT_TYPES.includes(inputType)
+    ) {
+      return true;
+    }
+
+    // Check element tags
+    if (COMPOUND_ELEMENT_TAGS.includes(tag)) {
+      return true;
+    }
+
+    // Check ARIA roles
+    if (ariaRole && COMPOUND_ARIA_ROLES.includes(ariaRole)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Main entry point for compound component detection
+   * Adds virtual components to compound controls
+   */
+  async addCompoundComponents(node: EnhancedDOMTreeNode): Promise<void> {
+    try {
+      const tag = node.tag?.toLowerCase();
+
+      // Initialize compound children array if needed
+      if (!node._compoundChildren) {
+        node._compoundChildren = [];
+      }
+
+      // Build compound components based on element type
+      if (tag === "input") {
+        await this.buildInputComponents(node);
+      } else if (tag === "select") {
+        await this.buildSelectComponents(node);
+      } else if (tag === "details") {
+        await this.buildDetailsComponents(node);
+      } else if (tag === "audio" || tag === "video") {
+        await this.buildMediaComponents(node);
+      } else if (node.attributes.role?.toLowerCase() === "combobox") {
+        await this.buildComboboxComponents(node);
+      }
+
+      this.logger.debug(
+        `Added ${node._compoundChildren.length} compound components to ${tag} element`
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Error adding compound components to node ${node.nodeId}:`,
+        error
+      );
+    }
+  }
+
+  /**
+   * Build compound components for input elements
+   */
+  private async buildInputComponents(node: EnhancedDOMTreeNode): Promise<void> {
+    const inputType = node.attributes.type?.toLowerCase();
+    if (!inputType || !COMPOUND_INPUT_TYPES.includes(inputType)) {
+      return;
+    }
+
+    switch (inputType) {
+      case "range":
+        this.buildRangeComponents(node);
+        break;
+      case "number":
+        this.buildNumberComponents(node);
+        break;
+      case "color":
+        this.buildColorComponents(node);
+        break;
+      case "file":
+        this.buildFileComponents(node);
+        break;
+      case "date":
+      case "time":
+      case "datetime-local":
+      case "month":
+      case "week":
+        this.buildDateTimeComponents(node, inputType);
+        break;
+    }
+  }
+
+  /**
+   * Build components for range input (slider)
+   */
+  private buildRangeComponents(node: EnhancedDOMTreeNode): void {
+    const min = this.safeParseNumber(node.attributes.min, 0.0);
+    const max = this.safeParseNumber(node.attributes.max, 100.0);
+    const value = this.safeParseNumber(node.attributes.value, (min + max) / 2);
+
+    node._compoundChildren?.push({
+      role: "slider",
+      name: "Value",
+      valuemin: min,
+      valuemax: max,
+      valuenow: value,
+    });
+  }
+
+  /**
+   * Build components for number input
+   */
+  private buildNumberComponents(node: EnhancedDOMTreeNode): void {
+    node._compoundChildren?.push(
+      { role: "button", name: "Increment" },
+      { role: "button", name: "Decrement" },
+      { role: "textbox", name: "Value" }
+    );
+  }
+
+  /**
+   * Build components for color input
+   */
+  private buildColorComponents(node: EnhancedDOMTreeNode): void {
+    const value = node.attributes.value || "#000000";
+
+    node._compoundChildren?.push(
+      { role: "textbox", name: "Hex Value", valuenow: value },
+      { role: "button", name: "Color Picker" }
+    );
+  }
+
+  /**
+   * Build components for file input
+   */
+  private buildFileComponents(node: EnhancedDOMTreeNode): void {
+    const hasFile = node.attributes.value && node.attributes.value !== "";
+
+    node._compoundChildren?.push(
+      { role: "button", name: "Browse" },
+      {
+        role: "textbox",
+        name: "Filename",
+        valuenow: hasFile ? node.attributes.value : "No file selected",
+        readonly: true,
+      }
+    );
+  }
+
+  /**
+   * Build components for date/time inputs
+   */
+  private buildDateTimeComponents(
+    node: EnhancedDOMTreeNode,
+    inputType: string
+  ): void {
+    let formatHint = "";
+    let formats = "";
+
+    switch (inputType) {
+      case "date":
+        formatHint = "YYYY-MM-DD";
+        formats = "ISO 8601 date";
+        break;
+      case "time":
+        formatHint = "HH:MM";
+        formats = "24-hour time";
+        break;
+      case "datetime-local":
+        formatHint = "YYYY-MM-DDTHH:MM";
+        formats = "ISO 8601 datetime";
+        break;
+      case "month":
+        formatHint = "YYYY-MM";
+        formats = "Year-month";
+        break;
+      case "week":
+        formatHint = "YYYY-Www";
+        formats = "ISO week date";
+        break;
+    }
+
+    const value = node.attributes.value || "";
+
+    node._compoundChildren?.push({
+      role: "textbox",
+      name: "Date/Time Value",
+      valuenow: value,
+      format_hint: formatHint,
+      formats,
+    });
+  }
+
+  /**
+   * Build components for select elements
+   */
+  private async buildSelectComponents(
+    node: EnhancedDOMTreeNode
+  ): Promise<void> {
+    const optionsInfo = await this.extractSelectOptions(node);
+    if (!optionsInfo) {
+      return;
+    }
+
+    // Add dropdown toggle button
+    node._compoundChildren?.push({
+      role: "button",
+      name: "Dropdown Toggle",
+    });
+
+    // Add options listbox
+    node._compoundChildren?.push({
+      role: "listbox",
+      name: "Options",
+      options_count: optionsInfo.count,
+      first_options: optionsInfo.firstOptions,
+      format_hint: optionsInfo.formatHint,
+    });
+  }
+
+  /**
+   * Extract options from select element
+   */
+  private async extractSelectOptions(node: EnhancedDOMTreeNode): Promise<{
+    count: number;
+    firstOptions: string[];
+    formatHint: string;
+  } | null> {
+    try {
+      // Use CDP to get select options
+      const result = await sendCDPCommand(
+        this.webContents,
+        "Runtime.evaluate",
+        {
+          expression: `
+            (function(nodeId) {
+              const node = document.querySelector('[data-node-id="' + nodeId + '"]');
+              if (!node || node.tagName !== 'SELECT') return null;
+
+              const options = Array.from(node.options);
+              const count = options.length;
+              const firstOptions = options.slice(0, 4).map(opt => opt.text || opt.value || '');
+
+              // Analyze format patterns
+              let formatHint = '';
+              if (count > 0) {
+                const sampleTexts = firstOptions.filter(text => text.length > 0);
+                if (sampleTexts.length > 0) {
+                  // Check for numeric patterns
+                  if (sampleTexts.every(text => /^\\d+$/.test(text))) {
+                    formatHint = 'numeric';
+                  }
+                  // Check for date patterns
+                  else if (sampleTexts.every(text => /^\\d{4}-\\d{2}-\\d{2}/.test(text))) {
+                    formatHint = 'date';
+                  }
+                  // Check for country/state codes
+                  else if (sampleTexts.every(text => /^[A-Z]{2}$/.test(text))) {
+                    formatHint = 'country_code';
+                  }
+                }
+              }
+
+              return { count, firstOptions, formatHint };
+            })(${node.nodeId})
+          `,
+        },
+        this.logger
+      );
+
+      return (result as { result?: { value?: { count: number; firstOptions: string[]; formatHint: string } } })?.result?.value || null;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to extract select options for node ${node.nodeId}:`,
+        error
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Build components for details/summary elements
+   */
+  private buildDetailsComponents(node: EnhancedDOMTreeNode): void {
+    const isOpen = node.attributes.open !== undefined;
+
+    node._compoundChildren?.push({
+      role: "button",
+      name: "Toggle Details",
+      valuenow: isOpen ? "open" : "closed",
+    });
+  }
+
+  /**
+   * Build components for media elements
+   */
+  private buildMediaComponents(node: EnhancedDOMTreeNode): void {
+    const isVideo = node.tag === "video";
+
+    node._compoundChildren?.push(
+      { role: "button", name: "Play/Pause" },
+      { role: "slider", name: "Progress", valuemin: 0, valuemax: 100 },
+      { role: "button", name: "Mute" },
+      { role: "slider", name: "Volume", valuemin: 0, valuemax: 100 }
+    );
+
+    if (isVideo) {
+      node._compoundChildren?.push({ role: "button", name: "Fullscreen" });
+    }
+  }
+
+  /**
+   * Build components for combobox elements
+   */
+  private buildComboboxComponents(node: EnhancedDOMTreeNode): void {
+    node._compoundChildren?.push(
+      { role: "textbox", name: "Input" },
+      { role: "button", name: "Dropdown Toggle" },
+      { role: "listbox", name: "Options" }
+    );
+  }
+
+  /**
+   * Safely parse a number with fallback
+   */
+  private safeParseNumber(value: string | undefined, fallback: number): number {
+    if (!value) return fallback;
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? fallback : parsed;
+  }
+
+  // ==================== COMPOUND COMPONENT SERIALIZATION ====================
+
+  /**
+   * Format compound components as HTML attribute string for serialization
+   */
+  formatCompoundComponents(node: EnhancedDOMTreeNode): string {
+    if (!node._compoundChildren || node._compoundChildren.length === 0) {
+      return "";
+    }
+
+    const compoundInfo = node._compoundChildren.map((childInfo: Record<string, unknown>) => {
+      const parts: string[] = [];
+      if (childInfo.name) parts.push(`name=${childInfo.name}`);
+      if (childInfo.role) parts.push(`role=${childInfo.role}`);
+      if (childInfo.valuemin !== undefined)
+        parts.push(`min=${childInfo.valuemin}`);
+      if (childInfo.valuemax !== undefined)
+        parts.push(`max=${childInfo.valuemax}`);
+      if (childInfo.valuenow !== undefined && childInfo.valuenow !== null) {
+        parts.push(`current=${childInfo.valuenow}`);
+      }
+      if (childInfo.options_count)
+        parts.push(`count=${childInfo.options_count}`);
+      if (
+        childInfo.first_options &&
+        Array.isArray(childInfo.first_options) &&
+        childInfo.first_options.length > 0
+      ) {
+        parts.push(
+          `options=[${childInfo.first_options.slice(0, 3).join(", ")}]`
+        );
+      }
+      if (childInfo.format_hint) parts.push(`format=${childInfo.format_hint}`);
+      if (childInfo.readonly) parts.push(`readonly=true`);
+      if (childInfo.description) parts.push(`desc=${childInfo.description}`);
+
+      return `(${parts.join(",")})`;
+    });
+
+    return `compound_components=${compoundInfo.join(",")}`;
+  }
+
+  /**
+   * Get compound component summary for debugging
+   */
+  getCompoundComponentSummary(node: EnhancedDOMTreeNode): {
+    count: number;
+    types: string[];
+    hasInteractiveComponents: boolean;
+    summary: string;
+  } {
+    if (!node._compoundChildren || node._compoundChildren.length === 0) {
+      return {
+        count: 0,
+        types: [],
+        hasInteractiveComponents: false,
+        summary: "No compound components",
+      };
+    }
+
+    const types = node._compoundChildren.map(
+      (child: Record<string, unknown>) => (child.role as string) || "unknown"
+    );
+    const interactiveRoles = ["button", "textbox", "slider", "listbox"];
+    const hasInteractiveComponents = node._compoundChildren.some(
+      (child: Record<string, unknown>) => child.role && interactiveRoles.includes(child.role as string)
+    );
+
+    const summary = `${node._compoundChildren.length} components: ${types.join(
+      ", "
+    )}`;
+
+    return {
+      count: node._compoundChildren.length,
+      types,
+      hasInteractiveComponents,
+      summary,
+    };
+  }
+
+  /**
+   * Check if node has compound components and is a compound control
+   */
+  isCompoundControl(node: EnhancedDOMTreeNode): boolean {
+    return !!(node._compoundChildren && node._compoundChildren.length > 0);
+  }
+
+  /**
+   * Get compound component detection tier info
+   */
+  getCompoundDetectionInfo(node: EnhancedDOMTreeNode): {
+    isCompound: boolean;
+    canVirtualize: boolean;
+    componentCount: number;
+    primaryType: string;
+    detectionReason: string;
+  } {
+    const canVirtualize = this.canVirtualize(node);
+    const isCompound = this.isCompoundControl(node);
+    const componentCount = node._compoundChildren?.length || 0;
+    const primaryType = this.getPrimaryCompoundType(node);
+    const detectionReason = this.getCompoundDetectionReason(node);
+
+    return {
+      isCompound,
+      canVirtualize,
+      componentCount,
+      primaryType,
+      detectionReason,
+    };
+  }
+
+  /**
+   * Get the primary type of compound control
+   */
+  private getPrimaryCompoundType(node: EnhancedDOMTreeNode): string {
+    if (!node._compoundChildren || node._compoundChildren.length === 0) {
+      return "none";
+    }
+
+    const tag = node.tag?.toLowerCase();
+    const inputType = node.attributes.type?.toLowerCase();
+
+    if (tag === "input") {
+      return inputType || "input";
+    } else if (tag) {
+      return tag;
+    } else if (node.attributes.role) {
+      return node.attributes.role;
+    }
+
+    return "unknown";
+  }
+
+  /**
+   * Get the reason why this element was detected as compound control
+   */
+  private getCompoundDetectionReason(node: EnhancedDOMTreeNode): string {
+    const tag = node.tag?.toLowerCase();
+    const inputType = node.attributes.type?.toLowerCase();
+    const ariaRole = node.attributes.role?.toLowerCase();
+
+    if (
+      tag === "input" &&
+      inputType &&
+      COMPOUND_INPUT_TYPES.includes(inputType)
+    ) {
+      return `Input type "${inputType}" requires virtualization`;
+    } else if (COMPOUND_ELEMENT_TAGS.includes(tag || "")) {
+      return `Element "${tag}" requires virtualization`;
+    } else if (ariaRole && COMPOUND_ARIA_ROLES.includes(ariaRole)) {
+      return `ARIA role "${ariaRole}" requires virtualization`;
+    } else if (node._compoundChildren && node._compoundChildren.length > 0) {
+      return `Has ${node._compoundChildren.length} virtual components`;
+    }
+
+    return "Unknown compound control";
+  }
+
+  // ==================== BOUNDS PROPAGATION SYSTEM ====================
+
+  /**
+   * Check if element is a propagating element that can contain child interactive elements
+   */
+  isPropagatingElement(node: EnhancedDOMTreeNode): boolean {
+    if (!node.tag) return false;
+
+    const tag = node.tag.toLowerCase();
+    const role = node.attributes.role?.toLowerCase() || null;
+
+    return PROPAGATING_ELEMENTS.some(
+      (propagating) => propagating.tag === tag && propagating.role === role
+    );
+  }
+
+  /**
+   * Check if child element is contained within parent bounds
+   */
+  isContainedInParent(
+    childNode: EnhancedDOMTreeNode,
+    parentNode: EnhancedDOMTreeNode,
+    threshold: number = DEFAULT_CONTAINMENT_THRESHOLD
+  ): boolean {
+    const childBounds = childNode.snapshotNode?.boundingBox;
+    const parentBounds = parentNode.snapshotNode?.boundingBox;
+
+    if (!childBounds || !parentBounds) {
+      return false;
+    }
+
+    // Calculate intersection area
+    const xOverlap = Math.max(
+      0,
+      Math.min(
+        childBounds.x + childBounds.width,
+        parentBounds.x + parentBounds.width
+      ) - Math.max(childBounds.x, parentBounds.x)
+    );
+    const yOverlap = Math.max(
+      0,
+      Math.min(
+        childBounds.y + childBounds.height,
+        parentBounds.y + parentBounds.height
+      ) - Math.max(childBounds.y, parentBounds.y)
+    );
+
+    const intersectionArea = xOverlap * yOverlap;
+    const childArea = childBounds.width * childBounds.height;
+
+    if (childArea === 0) {
+      return false;
+    }
+
+    const containmentRatio = intersectionArea / childArea;
+    return containmentRatio >= threshold;
+  }
+
+  /**
+   * Check if contained element should be kept (exception rules)
+   */
+  shouldKeepContainedElement(node: EnhancedDOMTreeNode): boolean {
+    const tag = node.tag?.toLowerCase();
+
+    // Always keep form elements
+    if (
+      ["input", "select", "textarea", "label", "option"].includes(tag || "")
+    ) {
+      return true;
+    }
+
+    // Keep other propagating elements (prevents event stop propagation conflicts)
+    if (this.isPropagatingElement(node)) {
+      return true;
+    }
+
+    // Keep elements with explicit onclick handlers
+    if (node.attributes.onclick && node.attributes.onclick !== "") {
+      return true;
+    }
+
+    // Keep elements with meaningful aria-label
+    if (
+      node.attributes["aria-label"] &&
+      node.attributes["aria-label"].trim() !== ""
+    ) {
+      return true;
+    }
+
+    // Keep interactive role elements
+    const role = node.attributes.role?.toLowerCase();
+    if (
+      role &&
+      ["button", "link", "checkbox", "radio", "menuitem", "tab"].includes(role)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Get bounding box for element in CSS pixels
+   */
+  getElementBounds(
+    node: EnhancedDOMTreeNode
+  ): { x: number; y: number; width: number; height: number } | null {
+    if (!node.snapshotNode?.boundingBox) {
+      return null;
+    }
+
+    const bounds = node.snapshotNode.boundingBox;
+    return {
+      x: this.deviceToCSSPixels(bounds.x),
+      y: this.deviceToCSSPixels(bounds.y),
+      width: this.deviceToCSSPixels(bounds.width),
+      height: this.deviceToCSSPixels(bounds.height),
+    };
+  }
+
+  /**
+   * Find propagating parent for bounds checking
+   */
+  findPropagatingParent(node: EnhancedDOMTreeNode): EnhancedDOMTreeNode | null {
+    let current = node.parent;
+    while (current) {
+      if (this.isPropagatingElement(current)) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /**
    * Highlight a single element using non-blocking overlay system
    */
   private async highlightElement(
@@ -776,10 +1477,26 @@ export class InteractiveElementDetector {
       tier3: "#96CEB4", // Green - Event handler detection
       tier4: "#DDA0DD", // Purple - Accessibility property analysis
       tier5: "#FF8C42", // Orange - Size-based filtering
+      compound: "#9B59B6", // Purple - Compound control detection
       default: "#FF6B6B", // Default red for unknown tiers
     };
 
-    const color = tierColors[detectionTier] || tierColors.default;
+    // Use compound-specific colors based on element type
+    let color = tierColors[detectionTier] || tierColors.default;
+    if (detectionTier === "compound") {
+      const tag = node.tag?.toLowerCase();
+      if (tag === "input") {
+        color = COMPOUND_HIGHLIGHT_COLORS.input;
+      } else if (tag === "select") {
+        color = COMPOUND_HIGHLIGHT_COLORS.select;
+      } else if (["audio", "video"].includes(tag || "")) {
+        color = COMPOUND_HIGHLIGHT_COLORS.media;
+      } else if (tag === "details") {
+        color = COMPOUND_HIGHLIGHT_COLORS.details;
+      } else {
+        color = COMPOUND_HIGHLIGHT_COLORS.custom;
+      }
+    }
 
     try {
       // Enable DOM agent if not already enabled
@@ -804,7 +1521,9 @@ export class InteractiveElementDetector {
 
       // Add unique class for pseudo-element targeting
       const existingClass = node.attributes?.class || "";
-      const newClass = existingClass ? `${existingClass} autai-highlight-${detectionTier}` : `autai-highlight-${detectionTier}`;
+      const newClass = existingClass
+        ? `${existingClass} autai-highlight-${detectionTier}`
+        : `autai-highlight-${detectionTier}`;
 
       await sendCDPCommand(
         this.webContents,
@@ -831,7 +1550,6 @@ export class InteractiveElementDetector {
 
       // Inject the pseudo-element CSS for this tier
       await this.injectHighlightCSS(color, detectionTier);
-
     } catch (error) {
       this.logger.warn(`Failed to highlight element ${node.nodeId}:`, error);
     }
@@ -845,7 +1563,10 @@ export class InteractiveElementDetector {
   /**
    * Inject CSS for pseudo-element highlighting
    */
-  private async injectHighlightCSS(color: string, detectionTier: string): Promise<void> {
+  private async injectHighlightCSS(
+    color: string,
+    detectionTier: string
+  ): Promise<void> {
     // Avoid injecting the same style multiple times
     const styleKey = `${detectionTier}-${color}`;
     if (this.injectedStyles.has(styleKey)) {
@@ -884,16 +1605,18 @@ export class InteractiveElementDetector {
                 document.head.appendChild(style);
               }
             })()
-          `
+          `,
         },
         this.logger
       );
 
       this.injectedStyles.add(styleKey);
       this.logger.debug(`Injected highlight CSS for tier: ${detectionTier}`);
-
     } catch (error) {
-      this.logger.warn(`Failed to inject highlight CSS for tier ${detectionTier}:`, error);
+      this.logger.warn(
+        `Failed to inject highlight CSS for tier ${detectionTier}:`,
+        error
+      );
     }
   }
 }
