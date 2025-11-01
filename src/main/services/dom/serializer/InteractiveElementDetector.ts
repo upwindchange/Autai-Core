@@ -123,15 +123,6 @@ const PROPAGATING_ELEMENTS = [
 // Default containment threshold for bounds propagation
 const DEFAULT_CONTAINMENT_THRESHOLD = 0.99;
 
-// Compound control highlighting colors
-const COMPOUND_HIGHLIGHT_COLORS = {
-  input: "#9B59B6", // Purple - Input controls
-  select: "#3498DB", // Blue - Select controls
-  media: "#E67E22", // Orange - Media controls
-  details: "#1ABC9C", // Teal - Details/summary
-  custom: "#F39C12", // Gold - Custom compound controls
-} as const;
-
 // Icon detection attributes
 const ICON_ATTRIBUTES = [
   "class",
@@ -210,40 +201,6 @@ export class InteractiveElementDetector {
   }
 
   /**
-   * Convert device pixels to CSS pixels for accurate sizing
-   */
-  private deviceToCSSPixels(devicePixels: number): number {
-    return devicePixels / this.devicePixelRatio;
-  }
-
-  /**
-   * Get element size in CSS pixels
-   */
-  private getElementSize(
-    node: EnhancedDOMTreeNode
-  ): { width: number; height: number } | null {
-    if (!node.snapshotNode?.boundingBox) {
-      return null;
-    }
-
-    const { width, height } = node.snapshotNode.boundingBox;
-    return {
-      width: this.deviceToCSSPixels(width),
-      height: this.deviceToCSSPixels(height),
-    };
-  }
-
-  /**
-   * Main detection method with on-the-fly highlighting
-   *
-   * @param node The DOM node to check for interactivity
-   * @returns boolean indicating if the element is interactive
-   */
-  async isInteractive(node: EnhancedDOMTreeNode): Promise<boolean> {
-    return this.getDetectionTier(node);
-  }
-
-  /**
    * Check if element passes basic visual filtering (opacity, visibility)
    */
   private passesVisualFilter(node: EnhancedDOMTreeNode): boolean {
@@ -270,12 +227,12 @@ export class InteractiveElementDetector {
   }
 
   /**
-   * Enhanced detection method with on-the-fly highlighting
+   * Main detection method with on-the-fly highlighting
    *
    * @param node The DOM node to check for interactivity
    * @returns boolean indicating if the element is interactive
    */
-  async getDetectionTier(node: EnhancedDOMTreeNode): Promise<boolean> {
+  async isInteractive(node: EnhancedDOMTreeNode): Promise<boolean> {
     try {
       // Basic validation
       if (!node) {
@@ -340,14 +297,14 @@ export class InteractiveElementDetector {
 
       // Tier 6: Compound control detection
       if (await this.checkCompoundControls(node)) {
-        await this.highlightElement(node, "compound");
+        await this.highlightElement(node, "tier6");
         return true;
       }
 
       return false;
     } catch (error) {
       this.logger.error(
-        `Error in getDetectionTier for node ${node.nodeId}:`,
+        `Error in isInteractive for node ${node.nodeId}:`,
         error
       );
       return false;
@@ -400,6 +357,30 @@ export class InteractiveElementDetector {
     }
 
     return isLargeEnough;
+  }
+
+  /**
+   * Convert device pixels to CSS pixels for accurate sizing
+   */
+  private deviceToCSSPixels(devicePixels: number): number {
+    return devicePixels / this.devicePixelRatio;
+  }
+
+  /**
+   * Get element size in CSS pixels
+   */
+  private getElementSize(
+    node: EnhancedDOMTreeNode
+  ): { width: number; height: number } | null {
+    if (!node.snapshotNode?.boundingBox) {
+      return null;
+    }
+
+    const { width, height } = node.snapshotNode.boundingBox;
+    return {
+      width: this.deviceToCSSPixels(width),
+      height: this.deviceToCSSPixels(height),
+    };
   }
 
   // Tier 2: Search Element Detection
@@ -1107,7 +1088,19 @@ export class InteractiveElementDetector {
         this.logger
       );
 
-      return (result as { result?: { value?: { count: number; firstOptions: string[]; formatHint: string } } })?.result?.value || null;
+      return (
+        (
+          result as {
+            result?: {
+              value?: {
+                count: number;
+                firstOptions: string[];
+                formatHint: string;
+              };
+            };
+          }
+        )?.result?.value || null
+      );
     } catch (error) {
       this.logger.warn(
         `Failed to extract select options for node ${node.nodeId}:`,
@@ -1178,34 +1171,37 @@ export class InteractiveElementDetector {
       return "";
     }
 
-    const compoundInfo = node._compoundChildren.map((childInfo: Record<string, unknown>) => {
-      const parts: string[] = [];
-      if (childInfo.name) parts.push(`name=${childInfo.name}`);
-      if (childInfo.role) parts.push(`role=${childInfo.role}`);
-      if (childInfo.valuemin !== undefined)
-        parts.push(`min=${childInfo.valuemin}`);
-      if (childInfo.valuemax !== undefined)
-        parts.push(`max=${childInfo.valuemax}`);
-      if (childInfo.valuenow !== undefined && childInfo.valuenow !== null) {
-        parts.push(`current=${childInfo.valuenow}`);
-      }
-      if (childInfo.options_count)
-        parts.push(`count=${childInfo.options_count}`);
-      if (
-        childInfo.first_options &&
-        Array.isArray(childInfo.first_options) &&
-        childInfo.first_options.length > 0
-      ) {
-        parts.push(
-          `options=[${childInfo.first_options.slice(0, 3).join(", ")}]`
-        );
-      }
-      if (childInfo.format_hint) parts.push(`format=${childInfo.format_hint}`);
-      if (childInfo.readonly) parts.push(`readonly=true`);
-      if (childInfo.description) parts.push(`desc=${childInfo.description}`);
+    const compoundInfo = node._compoundChildren.map(
+      (childInfo: Record<string, unknown>) => {
+        const parts: string[] = [];
+        if (childInfo.name) parts.push(`name=${childInfo.name}`);
+        if (childInfo.role) parts.push(`role=${childInfo.role}`);
+        if (childInfo.valuemin !== undefined)
+          parts.push(`min=${childInfo.valuemin}`);
+        if (childInfo.valuemax !== undefined)
+          parts.push(`max=${childInfo.valuemax}`);
+        if (childInfo.valuenow !== undefined && childInfo.valuenow !== null) {
+          parts.push(`current=${childInfo.valuenow}`);
+        }
+        if (childInfo.options_count)
+          parts.push(`count=${childInfo.options_count}`);
+        if (
+          childInfo.first_options &&
+          Array.isArray(childInfo.first_options) &&
+          childInfo.first_options.length > 0
+        ) {
+          parts.push(
+            `options=[${childInfo.first_options.slice(0, 3).join(", ")}]`
+          );
+        }
+        if (childInfo.format_hint)
+          parts.push(`format=${childInfo.format_hint}`);
+        if (childInfo.readonly) parts.push(`readonly=true`);
+        if (childInfo.description) parts.push(`desc=${childInfo.description}`);
 
-      return `(${parts.join(",")})`;
-    });
+        return `(${parts.join(",")})`;
+      }
+    );
 
     return `compound_components=${compoundInfo.join(",")}`;
   }
@@ -1233,7 +1229,8 @@ export class InteractiveElementDetector {
     );
     const interactiveRoles = ["button", "textbox", "slider", "listbox"];
     const hasInteractiveComponents = node._compoundChildren.some(
-      (child: Record<string, unknown>) => child.role && interactiveRoles.includes(child.role as string)
+      (child: Record<string, unknown>) =>
+        child.role && interactiveRoles.includes(child.role as string)
     );
 
     const summary = `${node._compoundChildren.length} components: ${types.join(
@@ -1462,7 +1459,7 @@ export class InteractiveElementDetector {
   }
 
   /**
-   * Highlight a single element using non-blocking overlay system
+   * Lightweight development highlighting using only DOM.setAttributeValue
    */
   private async highlightElement(
     node: EnhancedDOMTreeNode,
@@ -1477,26 +1474,12 @@ export class InteractiveElementDetector {
       tier3: "#96CEB4", // Green - Event handler detection
       tier4: "#DDA0DD", // Purple - Accessibility property analysis
       tier5: "#FF8C42", // Orange - Size-based filtering
-      compound: "#9B59B6", // Purple - Compound control detection
+      tier6: "#9B59B6", // Purple - Compound control detection
       default: "#FF6B6B", // Default red for unknown tiers
     };
 
     // Use compound-specific colors based on element type
-    let color = tierColors[detectionTier] || tierColors.default;
-    if (detectionTier === "compound") {
-      const tag = node.tag?.toLowerCase();
-      if (tag === "input") {
-        color = COMPOUND_HIGHLIGHT_COLORS.input;
-      } else if (tag === "select") {
-        color = COMPOUND_HIGHLIGHT_COLORS.select;
-      } else if (["audio", "video"].includes(tag || "")) {
-        color = COMPOUND_HIGHLIGHT_COLORS.media;
-      } else if (tag === "details") {
-        color = COMPOUND_HIGHLIGHT_COLORS.details;
-      } else {
-        color = COMPOUND_HIGHLIGHT_COLORS.custom;
-      }
-    }
+    const color = tierColors[detectionTier];
 
     try {
       // Enable DOM agent if not already enabled
@@ -1507,116 +1490,36 @@ export class InteractiveElementDetector {
         this.logger
       );
 
-      // Set up the element for pseudo-element highlighting
+      // Lightweight approach: Simple inline styles for development debugging
+      // No position changes, no class modifications, no z-index interference
       await sendCDPCommand(
         this.webContents,
         "DOM.setAttributeValue",
         {
           nodeId: node.nodeId,
           name: "style",
-          value: `position: relative !important; z-index: 1 !important;`,
-        },
-        this.logger
-      );
-
-      // Add unique class for pseudo-element targeting
-      const existingClass = node.attributes?.class || "";
-      const newClass = existingClass
-        ? `${existingClass} autai-highlight-${detectionTier}`
-        : `autai-highlight-${detectionTier}`;
-
-      await sendCDPCommand(
-        this.webContents,
-        "DOM.setAttributeValue",
-        {
-          nodeId: node.nodeId,
-          name: "class",
-          value: newClass,
-        },
-        this.logger
-      );
-
-      // Add data attribute to identify highlighted elements
-      await sendCDPCommand(
-        this.webContents,
-        "DOM.setAttributeValue",
-        {
-          nodeId: node.nodeId,
-          name: "data-autai-highlighted",
-          value: detectionTier,
-        },
-        this.logger
-      );
-
-      // Inject the pseudo-element CSS for this tier
-      await this.injectHighlightCSS(color, detectionTier);
-    } catch (error) {
-      this.logger.warn(`Failed to highlight element ${node.nodeId}:`, error);
-    }
-  }
-
-  /**
-   * Track injected CSS to avoid duplicate injection
-   */
-  private injectedStyles = new Set<string>();
-
-  /**
-   * Inject CSS for pseudo-element highlighting
-   */
-  private async injectHighlightCSS(
-    color: string,
-    detectionTier: string
-  ): Promise<void> {
-    // Avoid injecting the same style multiple times
-    const styleKey = `${detectionTier}-${color}`;
-    if (this.injectedStyles.has(styleKey)) {
-      return;
-    }
-
-    try {
-      const css = `
-        .autai-highlight-${detectionTier}::after {
-          content: '' !important;
-          position: absolute !important;
-          top: -3px !important;
-          left: -3px !important;
-          right: -3px !important;
-          bottom: -3px !important;
-          border: 3px solid ${color} !important;
-          background-color: ${color}20 !important;
-          pointer-events: none !important;
-          z-index: 999999 !important;
-          box-sizing: border-box !important;
-          border-radius: 2px !important;
-        }
-      `;
-
-      // Use Runtime.evaluate to inject the CSS
-      await sendCDPCommand(
-        this.webContents,
-        "Runtime.evaluate",
-        {
-          expression: `
-            (function() {
-              if (!document.getElementById('autai-highlight-styles-${detectionTier}')) {
-                const style = document.createElement('style');
-                style.id = 'autai-highlight-styles-${detectionTier}';
-                style.textContent = \`${css}\`;
-                document.head.appendChild(style);
-              }
-            })()
+          value: `
+            outline: 3px solid ${color} !important;
+            outline-offset: 2px !important;
+            background-color: ${color}20 !important;
           `,
         },
         this.logger
       );
 
-      this.injectedStyles.add(styleKey);
-      this.logger.debug(`Injected highlight CSS for tier: ${detectionTier}`);
-    } catch (error) {
-      this.logger.warn(
-        `Failed to inject highlight CSS for tier ${detectionTier}:`,
-        error
+      // Simple data attribute for identification (no class pollution)
+      await sendCDPCommand(
+        this.webContents,
+        "DOM.setAttributeValue",
+        {
+          nodeId: node.nodeId,
+          name: "data-autai-tier",
+          value: detectionTier,
+        },
+        this.logger
       );
+    } catch (error) {
+      this.logger.warn(`Failed to highlight element ${node.nodeId}:`, error);
     }
   }
 }
