@@ -15,7 +15,7 @@ import type {
   SerializationStats,
   InteractiveDetectionResult,
   PaintOrderStats,
-  BoundingBoxFilterStats
+  BoundingBoxFilterStats,
 } from "./types";
 
 export interface IDOMService {
@@ -23,34 +23,6 @@ export interface IDOMService {
    * Get the webContents instance
    */
   getWebContents(): WebContents;
-
-  /**
-   * Send a CDP command
-   */
-  sendCommand<T = unknown>(
-    method: string,
-    params?: unknown
-  ): Promise<T>;
-
-  /**
-   * Get the underlying debugger (for advanced usage)
-   */
-  getDebugger(): Debugger;
-
-  /**
-   * Attach the debugger to the webContents
-   */
-  attach(protocolVersion?: string): Promise<void>;
-
-  /**
-   * Detach the debugger from the webContents
-   */
-  detach(): Promise<void>;
-
-  /**
-   * Check if debugger is attached
-   */
-  isAttached(): boolean;
 
   /**
    * Get enhanced DOM tree with integrated CDP data
@@ -72,9 +44,7 @@ export interface IDOMService {
   /**
    * Get DOM tree with change detection for efficient updates
    */
-  getDOMTreeWithChangeDetection(
-    previousState?: SerializedDOMState
-  ): Promise<{
+  getDOMTreeWithChangeDetection(previousState?: SerializedDOMState): Promise<{
     domTree: EnhancedDOMTreeNode;
     serializedState?: SerializedDOMState;
     hasChanges: boolean;
@@ -150,12 +120,12 @@ export interface IInteractiveElementDetector {
     accessibility: {
       role?: string;
       name?: string;
-      properties?: Array<{name: string; value: unknown}>;
+      properties?: Array<{ name: string; value: unknown }>;
     };
     visual: {
       cursor?: string;
       isVisible?: boolean;
-      bounds?: {width: number; height: number};
+      bounds?: { width: number; height: number };
     };
     detection: InteractiveDetectionResult;
   };
@@ -193,12 +163,14 @@ export interface IBoundingBoxFilter {
   /**
    * Configure filtering parameters
    */
-  updateConfig(config: Partial<{
-    containmentThreshold: number;
-    enableSizeFiltering: boolean;
-    minElementSize: number;
-    maxElementSize: number;
-  }>): void;
+  updateConfig(
+    config: Partial<{
+      containmentThreshold: number;
+      enableSizeFiltering: boolean;
+      minElementSize: number;
+      maxElementSize: number;
+    }>
+  ): void;
 }
 
 /**
