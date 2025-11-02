@@ -31,31 +31,16 @@ export class DOMService implements IDOMService {
     this.logger.info("DOMService initialized - direct CDP integration");
   }
 
-  async sendCommand<T = unknown>(method: string, params?: unknown): Promise<T> {
-    return sendCDPCommand<T>(this.webContents, method, params, this.logger);
-  }
-
-  async attach(): Promise<void> {
-    return attachDebugger(this.webContents, this.logger);
-  }
-
-  async detach(): Promise<void> {
-    return detachDebugger(this.webContents, this.logger);
-  }
-
-  isAttached(): boolean {
-    return isDebuggerAttached(this.webContents);
-  }
-
+  
   async getDOMTree(): Promise<EnhancedDOMTreeNode> {
-    if (!this.isAttached()) {
+    if (!isDebuggerAttached(this.webContents)) {
       throw new Error("Debugger not attached - call initialize() first");
     }
 
     try {
       this.logger.debug("Getting DOM tree");
 
-      await this.sendCommand("DOM.enable");
+      await sendCDPCommand(this.webContents, "DOM.enable", undefined, this.logger);
       this.logger.debug("DOM agent enabled successfully");
 
       const trees = await this.getAllTrees();
@@ -81,11 +66,12 @@ export class DOMService implements IDOMService {
 
       // Get DOM data in parallel with correct CDP typing
       const [domTree, snapshot, axTree] = await Promise.allSettled([
-        this.sendCommand<CDP.DOM.GetDocumentResponse>("DOM.getDocument", {
+        sendCDPCommand<CDP.DOM.GetDocumentResponse>(this.webContents, "DOM.getDocument", {
           depth: -1,
           pierce: true,
-        }),
-        this.sendCommand<CDP.DOMSnapshot.GetSnapshotResponse>(
+        }, this.logger),
+        sendCDPCommand<CDP.DOMSnapshot.GetSnapshotResponse>(
+          this.webContents,
           "DOMSnapshot.captureSnapshot",
           {
             computedStyles: [
@@ -99,10 +85,14 @@ export class DOMService implements IDOMService {
             includeDOMRects: true,
             includeBlendedBackgroundColors: false,
             includeTextColorOpacities: false,
-          }
+          },
+          this.logger
         ),
-        this.sendCommand<CDP.Accessibility.GetFullAXTreeResponse>(
-          "Accessibility.getFullAXTree"
+        sendCDPCommand<CDP.Accessibility.GetFullAXTreeResponse>(
+          this.webContents,
+          "Accessibility.getFullAXTree",
+          undefined,
+          this.logger
         ),
       ]);
 
@@ -371,7 +361,7 @@ export class DOMService implements IDOMService {
    */
   async initialize(): Promise<void> {
     try {
-      await this.attach();
+      await attachDebugger(this.webContents, this.logger);
       this.logger.info("DOMService initialized");
     } catch (error) {
       this.logger.error("Failed to initialize DOMService:", error);
@@ -384,7 +374,7 @@ export class DOMService implements IDOMService {
    */
   async destroy(): Promise<void> {
     try {
-      await this.detach();
+      await detachDebugger(this.webContents, this.logger);
       this.previousState = undefined;
       this.logger.info("DOMService destroyed");
     } catch (error) {
@@ -455,7 +445,7 @@ export class DOMService implements IDOMService {
    * Check if the service is ready
    */
   isReady(): boolean {
-    return this.isAttached();
+    return isDebuggerAttached(this.webContents);
   }
 
   /**
@@ -469,7 +459,7 @@ export class DOMService implements IDOMService {
     timing: SerializationTiming;
     stats: SerializationStats;
   }> {
-    if (!this.isAttached()) {
+    if (!isDebuggerAttached(this.webContents)) {
       throw new Error("Debugger not attached - call initialize() first");
     }
 
@@ -521,7 +511,7 @@ export class DOMService implements IDOMService {
     hasChanges: boolean;
     changeCount: number;
   }> {
-    if (!this.isAttached()) {
+    if (!isDebuggerAttached(this.webContents)) {
       throw new Error("Debugger not attached - call initialize() first");
     }
 
@@ -567,7 +557,7 @@ export class DOMService implements IDOMService {
   getStatus() {
     return {
       isInitialized: true,
-      isAttached: this.isAttached(),
+      isAttached: isDebuggerAttached(this.webContents),
       webContentsId: this.webContents.id,
     };
   }
