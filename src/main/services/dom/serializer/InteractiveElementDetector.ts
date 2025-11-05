@@ -240,10 +240,8 @@ export class InteractiveElementDetector {
         return false;
       }
 
-      // Visual filtering
-      if (!this.passesVisualFilter(node)) return false;
-
       // Tier 1: Quick filters
+      if (!this.passesVisualFilter(node)) return false;
       if (!this.checkNodeType(node)) return false;
       if (this.checkSkippedElements(node)) return false;
       if (this.checkIframeSize(node)) {

@@ -179,7 +179,6 @@ export interface SerializationStats {
   newElements: number;
   occludedNodes: number;
   containedNodes: number;
-  compoundComponents: number;
 }
 
 export interface SerializedDOMState {

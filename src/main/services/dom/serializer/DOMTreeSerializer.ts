@@ -35,7 +35,10 @@ export class DOMTreeSerializer {
   private interactiveCounter = 1;
   private interactiveDetector: InteractiveElementDetector;
 
-  constructor(webContents: WebContents, config: Partial<SerializationConfig> = {}) {
+  constructor(
+    webContents: WebContents,
+    config: Partial<SerializationConfig> = {}
+  ) {
     this.config = {
       enablePaintOrderFiltering: true,
       enableBoundingBoxFiltering: true,
@@ -154,73 +157,10 @@ export class DOMTreeSerializer {
       }
     }
 
-    // Add basic compound components
-    this.addCompoundComponents(simplified, node);
-
     // Mark as new if no previous state
     simplified.isNew = true;
 
     return simplified;
-  }
-
-  /**
-   * Add basic compound components (simplified)
-   */
-  private addCompoundComponents(
-    simplified: SimplifiedNode,
-    node: EnhancedDOMTreeNode
-  ): void {
-    if (!node.tag) return;
-    const tag = node.tag.toLowerCase();
-    const type = node.attributes?.type?.toLowerCase();
-
-    // Date input
-    if (
-      tag === "input" &&
-      ["date", "time", "datetime-local", "month"].includes(type || "")
-    ) {
-      simplified.isCompoundComponent = true;
-      node._compoundChildren = [
-        { role: "spinbutton", name: "Day", valuemin: 1, valuemax: 31 },
-        { role: "spinbutton", name: "Month", valuemin: 1, valuemax: 12 },
-      ];
-    }
-
-    // Range input
-    if (tag === "input" && type === "range") {
-      simplified.isCompoundComponent = true;
-      node._compoundChildren = [
-        { role: "slider", name: "Value", valuemin: 0, valuemax: 100 },
-      ];
-    }
-
-    // Number input
-    if (tag === "input" && type === "number") {
-      simplified.isCompoundComponent = true;
-      node._compoundChildren = [
-        { role: "button", name: "Increment" },
-        { role: "button", name: "Decrement" },
-        { role: "textbox", name: "Value" },
-      ];
-    }
-
-    // Select dropdown
-    if (tag === "select") {
-      simplified.isCompoundComponent = true;
-      node._compoundChildren = [
-        { role: "button", name: "Dropdown Toggle" },
-        { role: "listbox", name: "Options" },
-      ];
-    }
-
-    // File input
-    if (tag === "input" && type === "file") {
-      simplified.isCompoundComponent = true;
-      node._compoundChildren = [
-        { role: "button", name: "Browse Files" },
-        { role: "textbox", name: "Files Selected" },
-      ];
-    }
   }
 
   /**
@@ -277,7 +217,6 @@ export class DOMTreeSerializer {
       newElements,
       occludedNodes: 0,
       containedNodes: 0,
-      compoundComponents: 0,
     };
   }
 
@@ -287,5 +226,4 @@ export class DOMTreeSerializer {
   getConfig(): SerializationConfig {
     return this.config;
   }
-
-  }
+}

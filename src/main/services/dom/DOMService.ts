@@ -17,7 +17,12 @@ import type {
   EnhancedSnapshotNode,
 } from "@shared/dom";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
-import { sendCDPCommand, attachDebugger, detachDebugger, isDebuggerAttached } from "./utils/DOMUtils";
+import {
+  sendCDPCommand,
+  attachDebugger,
+  detachDebugger,
+  isDebuggerAttached,
+} from "./utils/DOMUtils";
 
 export class DOMService implements IDOMService {
   private webContents: WebContents;
@@ -31,7 +36,6 @@ export class DOMService implements IDOMService {
     this.logger.info("DOMService initialized - direct CDP integration");
   }
 
-  
   async getDOMTree(): Promise<EnhancedDOMTreeNode> {
     if (!isDebuggerAttached(this.webContents)) {
       throw new Error("Debugger not attached - call initialize() first");
@@ -40,7 +44,12 @@ export class DOMService implements IDOMService {
     try {
       this.logger.debug("Getting DOM tree");
 
-      await sendCDPCommand(this.webContents, "DOM.enable", undefined, this.logger);
+      await sendCDPCommand(
+        this.webContents,
+        "DOM.enable",
+        undefined,
+        this.logger
+      );
       this.logger.debug("DOM agent enabled successfully");
 
       const trees = await this.getAllTrees();
@@ -66,10 +75,15 @@ export class DOMService implements IDOMService {
 
       // Get DOM data in parallel with correct CDP typing
       const [domTree, snapshot, axTree] = await Promise.allSettled([
-        sendCDPCommand<CDP.DOM.GetDocumentResponse>(this.webContents, "DOM.getDocument", {
-          depth: -1,
-          pierce: true,
-        }, this.logger),
+        sendCDPCommand<CDP.DOM.GetDocumentResponse>(
+          this.webContents,
+          "DOM.getDocument",
+          {
+            depth: -1,
+            pierce: true,
+          },
+          this.logger
+        ),
         sendCDPCommand<CDP.DOMSnapshot.GetSnapshotResponse>(
           this.webContents,
           "DOMSnapshot.captureSnapshot",
@@ -304,7 +318,7 @@ export class DOMService implements IDOMService {
       get elementHash() {
         return 0;
       },
-      };
+    };
 
     // Store in lookup
     nodeLookup[node.nodeId] = enhancedNode;
@@ -380,72 +394,6 @@ export class DOMService implements IDOMService {
     } catch (error) {
       this.logger.error("Error during DOMService destruction:", error);
     }
-  }
-
-  /**
-   * Get the underlying debugger (for advanced usage)
-   */
-  getDebugger() {
-    return this.webContents.debugger;
-  }
-
-  /**
-   * Get the webContents instance
-   */
-  getWebContents(): WebContents {
-    return this.webContents;
-  }
-
-  /**
-   * Get viewport information (simplified)
-   */
-  async getViewportInfo() {
-    return {
-      width: 1920,
-      height: 1080,
-      devicePixelRatio: 1.0,
-      scrollX: 0,
-      scrollY: 0,
-    };
-  }
-
-  /**
-   * Get frame tree (simplified)
-   */
-  async getFrameTree() {
-    return {
-      frameTree: {
-        frame: {
-          id: "default",
-          url: "",
-          name: "",
-          securityOrigin: "",
-        },
-      },
-    };
-  }
-
-  /**
-   * Get targets for current page (simplified)
-   */
-  async getTargetsForPage() {
-    return {
-      pageSession: {
-        targetId: "default",
-        type: "page",
-        title: "",
-        url: "",
-        attached: true,
-      },
-      iframeSessions: [],
-    };
-  }
-
-  /**
-   * Check if the service is ready
-   */
-  isReady(): boolean {
-    return isDebuggerAttached(this.webContents);
   }
 
   /**

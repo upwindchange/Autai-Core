@@ -20,11 +20,6 @@ import type {
 
 export interface IDOMService {
   /**
-   * Get the webContents instance
-   */
-  getWebContents(): WebContents;
-
-  /**
    * Get enhanced DOM tree with integrated CDP data
    */
   getDOMTree(targetId?: string): Promise<EnhancedDOMTreeNode>;
@@ -57,11 +52,6 @@ export interface IDOMService {
   initialize(): Promise<void>;
 
   /**
-   * Check if the service is ready
-   */
-  isReady(): boolean;
-
-  /**
    * Get service status information
    */
   getStatus(): {
@@ -69,32 +59,6 @@ export interface IDOMService {
     isAttached: boolean;
     webContentsId: number;
   };
-
-  /**
-   * Get viewport information
-   */
-  getViewportInfo(): Promise<ViewportInfo>;
-
-  /**
-   * Get frame tree
-   */
-  getFrameTree(): Promise<{
-    frameTree: {
-      frame: {
-        id: string;
-        url: string;
-        name?: string;
-        securityOrigin?: string;
-      };
-      childFrames?: unknown[];
-      parent?: unknown;
-    };
-  }>;
-
-  /**
-   * Get targets for current page
-   */
-  getTargetsForPage(targetId?: string): Promise<CurrentPageTargets>;
 
   /**
    * Cleanup resources
