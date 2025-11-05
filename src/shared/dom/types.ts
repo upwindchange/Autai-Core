@@ -188,7 +188,7 @@ export interface SerializedDOMState {
   stats?: SerializationStats;
   config?: SerializationConfig;
 
-  llm_representation?(): string;
+  llm_representation?(): Promise<string>;
 }
 
 export interface SimplifiedNode {
@@ -213,6 +213,9 @@ export interface SimplifiedNode {
   hasChildren: boolean;
   tagName: string;
   textContent: string;
+
+  // Methods
+  llm_representation?(): Promise<string>;
 }
 
 export interface InteractiveDetectionResult {

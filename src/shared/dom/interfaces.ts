@@ -3,11 +3,8 @@
  * Simplified implementation following browser-use patterns with minimal abstraction
  */
 
-import type { Debugger, WebContents } from "electron";
 import type {
-  CurrentPageTargets,
   EnhancedDOMTreeNode,
-  ViewportInfo,
   SerializedDOMState,
   SimplifiedNode,
   SerializationConfig,
