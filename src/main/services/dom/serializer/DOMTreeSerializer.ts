@@ -20,7 +20,13 @@ import log from "electron-log/main";
 import { InteractiveElementDetector } from "./InteractiveElementDetector";
 
 // Tags that should be skipped
-const SKIP_TAGS = ["style", "script", "head", "meta", "link", "title"];
+const SKIP_TAGS = [
+  "style", "script", "head", "meta", "link", "title",
+  // SVG elements to skip entirely
+  "svg", "path", "rect", "g", "circle", "ellipse", "line",
+  "polyline", "polygon", "use", "defs", "clipPath", "mask",
+  "pattern", "image", "text", "tspan"
+];
 
 /**
  * Simplified timing info
@@ -81,12 +87,15 @@ export class DOMTreeSerializer {
     if (!simplifiedRoot) {
       throw new Error("Root node was filtered out during serialization");
     }
-    const selectorMap = this.buildSelectorMap(simplifiedRoot);
-    const stats = this.calculateStats(simplifiedRoot);
+
+    // Apply tree optimization to remove empty branches
+    const optimizedRoot = this.optimizeTree(simplifiedRoot);
+    const selectorMap = this.buildSelectorMap(optimizedRoot);
+    const stats = this.calculateStats(optimizedRoot);
 
     // Log LLM representation for debugging
     try {
-      const llmRep = await simplifiedRoot.llm_representation();
+      const llmRep = await optimizedRoot.llm_representation();
       this.logger.debug("=== LLM DOM Representation ===");
       this.logger.debug(llmRep);
       this.logger.debug("=== End LLM DOM Representation ===");
@@ -100,7 +109,7 @@ export class DOMTreeSerializer {
 
     return {
       serializedState: {
-        root: simplifiedRoot,
+        root: optimizedRoot,
         selectorMap,
       },
       timing,
@@ -123,6 +132,15 @@ export class DOMTreeSerializer {
     // Skip hidden elements
     if (node.isVisible === false) {
       return null;
+    }
+
+    // Enhanced text node filtering - filter out text nodes with no meaningful content
+    if (node.nodeType === NodeType.TEXT_NODE && node.nodeValue) {
+      const textValue = node.nodeValue.trim();
+      // Skip text nodes that are empty, whitespace only, or single characters
+      if (!textValue || textValue.length <= 1) {
+        return null;
+      }
     }
 
     const simplified: SimplifiedNode = {
@@ -187,6 +205,140 @@ export class DOMTreeSerializer {
     };
 
     return simplified;
+  }
+
+  /**
+   * Optimize tree by removing empty branches and meaningless elements
+   * Based on browser-use's _optimize_tree approach
+   */
+  private optimizeTree(node: SimplifiedNode): SimplifiedNode {
+    // First, optimize all children recursively
+    const optimizedChildren: SimplifiedNode[] = [];
+    for (const child of node.children) {
+      const optimizedChild = this.optimizeTree(child);
+      if (this.shouldKeepNode(optimizedChild)) {
+        optimizedChildren.push(optimizedChild);
+      }
+    }
+
+    // Update the node with optimized children
+    node.children = optimizedChildren;
+    node.hasChildren = optimizedChildren.length > 0;
+
+    return node;
+  }
+
+  /**
+   * Determine if a node should be kept in the optimized tree
+   */
+  private shouldKeepNode(node: SimplifiedNode): boolean {
+    // Keep nodes that are interactive
+    if (node.interactiveIndex !== null) {
+      return true;
+    }
+
+    // Keep nodes that are scrollable
+    if (node.originalNode.isActuallyScrollable || node.originalNode.isScrollable) {
+      return true;
+    }
+
+    // Keep nodes that have meaningful children
+    if (node.children.length > 0) {
+      return true;
+    }
+
+    // Keep text nodes with meaningful content
+    if (node.originalNode.nodeType === NodeType.TEXT_NODE && node.originalNode.nodeValue) {
+      const textValue = node.originalNode.nodeValue.trim();
+      return textValue.length > 1;
+    }
+
+    // Keep iframes and frames
+    if (node.originalNode.tag) {
+      const upperTag = node.originalNode.tag.toUpperCase();
+      if (upperTag === 'IFRAME' || upperTag === 'FRAME') {
+        return true;
+      }
+    }
+
+    // Keep shadow hosts
+    if (node.isShadowHost) {
+      return true;
+    }
+
+    // Element meaningfulness check - keep elements with semantic value
+    if (this.hasSemanticMeaning(node)) {
+      return true;
+    }
+
+    // Default to removing the node if it doesn't meet any criteria
+    return false;
+  }
+
+  /**
+   * Check if an element has semantic meaning even if empty
+   */
+  private hasSemanticMeaning(node: SimplifiedNode): boolean {
+    return DOMTreeSerializer.hasSemanticMeaningStatic(node);
+  }
+
+  /**
+   * Static version of hasSemanticMeaning for use in static methods
+   */
+  private static hasSemanticMeaningStatic(node: SimplifiedNode): boolean {
+    const tag = node.originalNode.tag?.toLowerCase();
+    if (!tag) return false;
+
+    // Keep elements with important semantic roles
+    if (node.originalNode.axNode?.role) {
+      const role = String(node.originalNode.axNode.role).toLowerCase();
+      const semanticRoles = [
+        'button', 'link', 'navigation', 'main', 'banner', 'contentinfo',
+        'search', 'complementary', 'form', 'region', 'heading', 'list',
+        'listitem', 'table', 'row', 'cell', 'grid', 'gridcell', 'tab',
+        'tabpanel', 'dialog', 'alert', 'status', 'timer', 'marquee',
+        'application', 'document', 'article', 'section', 'group'
+      ];
+      if (semanticRoles.includes(role)) {
+        return true;
+      }
+    }
+
+    // Keep elements with meaningful attributes
+    if (node.originalNode.attributes) {
+      const meaningfulAttrs = ['id', 'data-testid', 'data-cy', 'role', 'aria-label', 'title'];
+      for (const attr of meaningfulAttrs) {
+        if (node.originalNode.attributes[attr]) {
+          return true;
+        }
+      }
+    }
+
+    // Keep important structural elements
+    const structuralTags = [
+      'header', 'footer', 'nav', 'main', 'section', 'article', 'aside',
+      'form', 'input', 'button', 'select', 'textarea', 'a', 'img',
+      'video', 'audio', 'canvas', 'svg', 'iframe', 'frame'
+    ];
+    if (structuralTags.includes(tag)) {
+      return true;
+    }
+
+    // Keep form controls
+    if (['input', 'textarea', 'select', 'button', 'option'].includes(tag)) {
+      return true;
+    }
+
+    // Keep elements with ARIA attributes
+    if (node.originalNode.attributes) {
+      for (const [key, value] of Object.entries(node.originalNode.attributes)) {
+        if (key.startsWith('aria-') && value) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   /**
@@ -325,6 +477,14 @@ export class DOMTreeSerializer {
           let value: string;
           if (typeof prop.value === 'boolean') {
             value = prop.value ? 'true' : 'false';
+          } else if (typeof prop.value === 'object' && prop.value !== null && 'value' in prop.value) {
+            // Handle CDP boolean objects: {type: "boolean", value: true/false}
+            if (typeof prop.value.value === 'boolean') {
+              value = prop.value.value ? 'true' : 'false';
+            } else {
+              // Skip non-boolean objects by not setting a value
+              return;
+            }
           } else {
             value = String(prop.value).trim();
           }
@@ -624,6 +784,24 @@ export class DOMTreeSerializer {
 
       if (isVisible && textValue && textValue.length > 1) {
         formattedText.push(`${depthStr}${textValue}`);
+      }
+    }
+
+    // Enhanced serialization: skip empty elements that have no meaningful content
+    // and no children that would be serialized
+    if (node.originalNode.tag && node.children.length === 0) {
+      // Check if this element should be serialized based on criteria
+      const shouldSerialize =
+        node.interactiveIndex !== null || // Interactive elements
+        node.originalNode.isActuallyScrollable || // Scrollable elements
+        node.originalNode.isScrollable ||
+        node.originalNode.shouldShowScrollInfo ||
+        (node.originalNode.tag && ['iframe', 'frame', 'img'].includes(node.originalNode.tag.toLowerCase())) ||
+        DOMTreeSerializer.hasSemanticMeaningStatic(node); // Elements with semantic value
+
+      if (!shouldSerialize) {
+        // Skip this element entirely - don't add anything to formattedText
+        return formattedText.join('\n');
       }
     }
 

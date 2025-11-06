@@ -13,6 +13,7 @@ import log from "electron-log/main";
 import { sendCDPCommand, isElementVisible } from "../utils/DOMUtils";
 
 // Enhanced interactive element tags (ported from DOMTreeSerializer)
+// Note: 'label' removed - labels with "for" attribute can destroy the real clickable element on apartments.com
 const INTERACTIVE_TAGS = [
   "button",
   "input",
@@ -20,7 +21,6 @@ const INTERACTIVE_TAGS = [
   "textarea",
   "a",
   "option",
-  "label",
   "iframe",
   "frame",
   "details",
@@ -118,6 +118,8 @@ const PROPAGATING_ELEMENTS = [
   { tag: "div", role: "button" },
   { tag: "div", role: "combobox" },
   { tag: "input", role: "combobox" },
+  { tag: "span", role: "button" },
+  { tag: "span", role: "combobox" },
 ];
 
 // Default containment threshold for bounds propagation
@@ -513,6 +515,19 @@ export class InteractiveElementDetector {
   // Tier 4: Accessibility Tree Analysis
 
   /**
+   * Extract actual value from CDP property object
+   * Handles both direct values and CDP object format: {type: "boolean", value: true}
+   */
+  private extractPropValue(prop: any): any {
+    // Handle CDP object format
+    if (typeof prop === 'object' && prop !== null && 'value' in prop) {
+      return prop.value;
+    }
+    // Handle direct values
+    return prop;
+  }
+
+  /**
    * Check comprehensive accessibility properties (ported from existing logic)
    */
   private checkAccessibilityProperties(node: EnhancedDOMTreeNode): boolean {
@@ -520,12 +535,13 @@ export class InteractiveElementDetector {
 
     for (const prop of node.axNode.properties) {
       const propName = prop.name.toLowerCase();
+      const propValue = this.extractPropValue(prop.value);
 
       // Check for blocker properties first (return false if true)
       if (
         BLOCKER_PROPERTIES.includes(propName) &&
-        prop.value?.type === "boolean" &&
-        prop.value.value === true
+        typeof propValue === 'boolean' &&
+        propValue === true
       ) {
         return false;
       }
@@ -533,8 +549,8 @@ export class InteractiveElementDetector {
       // Check for direct interactivity properties (return true if true)
       if (
         DIRECT_INTERACTIVITY.includes(propName) &&
-        prop.value?.type === "boolean" &&
-        prop.value.value === true
+        typeof propValue === 'boolean' &&
+        propValue === true
       ) {
         return true;
       }
@@ -542,8 +558,8 @@ export class InteractiveElementDetector {
       // Check for interactive state properties (return true if true)
       if (
         INTERACTIVE_STATES.includes(propName) &&
-        prop.value?.type === "boolean" &&
-        prop.value.value === true
+        typeof propValue === 'boolean' &&
+        propValue === true
       ) {
         return true;
       }
@@ -551,7 +567,7 @@ export class InteractiveElementDetector {
       // Check for form properties (return true if present)
       if (
         FORM_PROPERTIES.includes(propName) &&
-        prop.value?.value !== undefined
+        propValue !== undefined
       ) {
         return true;
       }

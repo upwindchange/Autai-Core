@@ -44,7 +44,7 @@ function createWindow() {
 
   if (is.dev && ELECTRON_RENDERER_URL) {
     win.loadURL(ELECTRON_RENDERER_URL);
-    win.webContents.openDevTools();
+    // win.webContents.openDevTools();
   } else {
     win.loadFile(indexHtml);
   }
