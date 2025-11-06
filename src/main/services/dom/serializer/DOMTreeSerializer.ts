@@ -13,7 +13,9 @@ import type {
   SerializationConfig,
   SerializationStats,
 } from "@shared/dom";
+import { NodeType } from "@shared/dom";
 import type { WebContents } from "electron";
+import log from "electron-log/main";
 
 import { InteractiveElementDetector } from "./InteractiveElementDetector";
 
@@ -34,6 +36,7 @@ export class DOMTreeSerializer {
   private config: SerializationConfig;
   private interactiveCounter = 1;
   private interactiveDetector: InteractiveElementDetector;
+  private logger = log.scope("DOMTreeSerializer");
 
   constructor(
     webContents: WebContents,
@@ -80,6 +83,16 @@ export class DOMTreeSerializer {
     }
     const selectorMap = this.buildSelectorMap(simplifiedRoot);
     const stats = this.calculateStats(simplifiedRoot);
+
+    // Log LLM representation for debugging
+    try {
+      const llmRep = await simplifiedRoot.llm_representation();
+      this.logger.debug("=== LLM DOM Representation ===");
+      this.logger.debug(llmRep);
+      this.logger.debug("=== End LLM DOM Representation ===");
+    } catch (error) {
+      this.logger.error("Failed to generate LLM representation:", error);
+    }
 
     const timing = {
       serialize_dom_tree_total: Date.now() - startTime,
@@ -167,9 +180,9 @@ export class DOMTreeSerializer {
     // Add llm_representation method to the simplified node
     simplified.llm_representation = async (): Promise<string> => {
       return await DOMTreeSerializer.serializeTree(simplified, [
-        'id', 'class', 'role', 'aria-label', 'placeholder', 'value',
-        'name', 'type', 'title', 'disabled', 'required', 'checked',
-        'selected', 'expanded', 'format', 'compound_components'
+        'role', 'aria-label', 'placeholder', 'value', 'title',
+        'name', 'type', 'disabled', 'required', 'checked',
+        'selected', 'expanded', 'format', 'expected_format', 'compound_components'
       ]);
     };
 
@@ -485,7 +498,7 @@ export class DOMTreeSerializer {
    */
   static async serializeTree(
     node: SimplifiedNode | null,
-    includeAttributes: string[] = ['placeholder', 'aria-label', 'title', 'value', 'name', 'type', 'role'],
+    includeAttributes: string[],
     depth: number = 0
   ): Promise<string> {
     if (!node) {
@@ -560,7 +573,7 @@ export class DOMTreeSerializer {
       }
 
       // Build attributes string
-      let textContent = '';
+      const textContent = '';
       const attributesString = this.buildAttributesString(node.originalNode, includeAttributes, textContent);
 
       // Build the line with shadow host indicator
@@ -573,18 +586,18 @@ export class DOMTreeSerializer {
 
       if (shouldShowScroll && node.interactiveIndex === null) {
         // Scrollable container but not clickable
-        line = `${depthStr}${shadowPrefix}|SCROLL|<${node.originalNode.tag}>`;
+        line = `${depthStr}${shadowPrefix}|SCROLL|<${node.originalNode.tag}`;
       } else if (node.interactiveIndex !== null) {
         // Clickable (and possibly scrollable)
         const newPrefix = node.isNew ? '*' : '';
         const scrollPrefix = shouldShowScroll ? '|SCROLL[' : '[';
-        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${node.originalNode.nodeId}]<${node.originalNode.tag}>`;
+        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${node.originalNode.nodeId}]<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === 'IFRAME') {
-        line = `${depthStr}${shadowPrefix}|IFRAME|<${node.originalNode.tag}>`;
+        line = `${depthStr}${shadowPrefix}|IFRAME|<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === 'FRAME') {
-        line = `${depthStr}${shadowPrefix}|FRAME|<${node.originalNode.tag}>`;
+        line = `${depthStr}${shadowPrefix}|FRAME|<${node.originalNode.tag}`;
       } else {
-        line = `${depthStr}${shadowPrefix}<${node.originalNode.tag}>`;
+        line = `${depthStr}${shadowPrefix}<${node.originalNode.tag}`;
       }
 
       if (attributesString) {
@@ -602,6 +615,16 @@ export class DOMTreeSerializer {
       }
 
       formattedText.push(line);
+    }
+
+    // Handle text nodes
+    if (node.originalNode.nodeType === NodeType.TEXT_NODE && node.originalNode.nodeValue) {
+      const isVisible = node.originalNode.isVisible;
+      const textValue = node.originalNode.nodeValue.trim();
+
+      if (isVisible && textValue && textValue.length > 1) {
+        formattedText.push(`${depthStr}${textValue}`);
+      }
     }
 
     // Process children
