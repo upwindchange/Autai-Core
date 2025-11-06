@@ -125,6 +125,10 @@ const PROPAGATING_ELEMENTS = [
 // Default containment threshold for bounds propagation
 const DEFAULT_CONTAINMENT_THRESHOLD = 0.99;
 
+// Paint order filtering constants
+const OPACITY_THRESHOLD = 0.8; // Elements with opacity below this are excluded from occlusion calculation
+const TRANSPARENT_BACKGROUND = 'rgba(0, 0, 0, 0)'; // Transparent background color to check for
+
 // Icon detection attributes
 const ICON_ATTRIBUTES = [
   "class",
@@ -139,6 +143,19 @@ const ICON_ATTRIBUTES = [
   "data-qa",
   "id",
 ];
+
+// ==================== PAINT ORDER INFRASTRUCTURE ====================
+
+/**
+ * Rectangle interface for paint order calculations
+ * Ported from browser-use paint_order.py
+ */
+interface PaintOrderRect {
+  readonly x1: number;
+  readonly y1: number;
+  readonly x2: number;
+  readonly y2: number;
+}
 
 // Icon class patterns
 const ICON_CLASS_PATTERNS = [
@@ -167,6 +184,9 @@ export class InteractiveElementDetector {
   private webContents: WebContents;
   private logger = log.scope("InteractiveElementDetector");
   private devicePixelRatio: number = 1; // Default ratio, will be updated dynamically
+
+  // Paint order filtering state
+  private paintOrderProcessed: Set<number> = new Set();
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
@@ -199,6 +219,268 @@ export class InteractiveElementDetector {
         error
       );
       this.devicePixelRatio = 1;
+    }
+  }
+
+  // ==================== PAINT ORDER METHODS ====================
+
+  /**
+   * Create a paint order rectangle
+   */
+  private createPaintOrderRect(x1: number, y1: number, x2: number, y2: number): PaintOrderRect {
+    if (!(x1 <= x2 && y1 <= y2)) {
+      throw new Error('Invalid rectangle coordinates');
+    }
+    return { x1, y1, x2, y2 };
+  }
+
+  
+  /**
+   * Check if rectangle a intersects with rectangle b
+   */
+  private rectIntersects(a: PaintOrderRect, b: PaintOrderRect): boolean {
+    return !(
+      a.x2 <= b.x1 ||
+      b.x2 <= a.x1 ||
+      a.y2 <= b.y1 ||
+      b.y2 <= a.y1
+    );
+  }
+
+  /**
+   * Check if rectangle a completely contains rectangle b
+   */
+  private rectContains(a: PaintOrderRect, b: PaintOrderRect): boolean {
+    return (
+      a.x1 <= b.x1 &&
+      a.y1 <= b.y1 &&
+      a.x2 >= b.x2 &&
+      a.y2 >= b.y2
+    );
+  }
+
+  // Paint order rectangle union state
+  private paintOrderRects: PaintOrderRect[] = [];
+
+  /**
+   * Split rectangle a by rectangle b, returning a \ b
+   * Returns up to 4 rectangles
+   */
+  private splitDiff(a: PaintOrderRect, b: PaintOrderRect): PaintOrderRect[] {
+    const parts: PaintOrderRect[] = [];
+
+    // Bottom slice
+    if (a.y1 < b.y1) {
+      parts.push({ x1: a.x1, y1: a.y1, x2: a.x2, y2: b.y1 });
+    }
+
+    // Top slice
+    if (b.y2 < a.y2) {
+      parts.push({ x1: a.x1, y1: b.y2, x2: a.x2, y2: a.y2 });
+    }
+
+    // Middle (vertical) strip: y overlap is [max(a.y1,b.y1), min(a.y2,b.y2)]
+    const yLo = Math.max(a.y1, b.y1);
+    const yHi = Math.min(a.y2, b.y2);
+
+    // Left slice
+    if (a.x1 < b.x1) {
+      parts.push({ x1: a.x1, y1: yLo, x2: b.x1, y2: yHi });
+    }
+
+    // Right slice
+    if (b.x2 < a.x2) {
+      parts.push({ x1: b.x2, y1: yLo, x2: a.x2, y2: yHi });
+    }
+
+    return parts;
+  }
+
+  /**
+   * Check if rectangle r is fully covered by the current paint order union
+   */
+  private paintOrderContains(r: PaintOrderRect): boolean {
+    if (this.paintOrderRects.length === 0) {
+      return false;
+    }
+
+    let stack = [r];
+    for (const s of this.paintOrderRects) {
+      const newStack: PaintOrderRect[] = [];
+      for (const piece of stack) {
+        if (this.rectContains(s, piece)) {
+          // piece completely gone
+          continue;
+        }
+        if (this.rectIntersects(piece, s)) {
+          newStack.push(...this.splitDiff(piece, s));
+        } else {
+          newStack.push(piece);
+        }
+      }
+      if (newStack.length === 0) {
+        // everything eaten – covered
+        return true;
+      }
+      stack = newStack;
+    }
+    return false; // something survived
+  }
+
+  /**
+   * Insert rectangle r into paint order union unless it is already covered
+   * Returns true if the union grew
+   */
+  private paintOrderAdd(r: PaintOrderRect): boolean {
+    if (this.paintOrderContains(r)) {
+      return false;
+    }
+
+    let pending = [r];
+    let i = 0;
+    while (i < this.paintOrderRects.length) {
+      const s = this.paintOrderRects[i];
+      const newPending: PaintOrderRect[] = [];
+      let changed = false;
+
+      for (const piece of pending) {
+        if (this.rectIntersects(piece, s)) {
+          newPending.push(...this.splitDiff(piece, s));
+          changed = true;
+        } else {
+          newPending.push(piece);
+        }
+      }
+
+      pending = newPending;
+      if (changed) {
+        // s unchanged; proceed with next existing rectangle
+        i += 1;
+      } else {
+        i += 1;
+      }
+    }
+
+    // Any left-over pieces are new, non-overlapping areas
+    this.paintOrderRects.push(...pending);
+    return true;
+  }
+
+  /**
+   * Initialize paint order filtering for a new detection cycle
+   */
+  private initializePaintOrderFiltering(): void {
+    this.paintOrderProcessed.clear();
+    this.paintOrderRects = [];
+  }
+
+  /**
+   * Check if element should be excluded from occlusion calculation due to transparency
+   */
+  private shouldExcludeFromOcclusion(node: EnhancedDOMTreeNode): boolean {
+    if (!node.snapshotNode?.computedStyles) {
+      return false;
+    }
+
+    // Check opacity threshold
+    const opacity = parseFloat(node.snapshotNode.computedStyles.opacity || '1');
+    if (opacity < OPACITY_THRESHOLD) {
+      return true;
+    }
+
+    // Check for transparent background
+    const backgroundColor = node.snapshotNode.computedStyles['background-color'];
+    if (backgroundColor === TRANSPARENT_BACKGROUND) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Create rectangle from node bounds in CSS pixels
+   */
+  private createRectFromNode(node: EnhancedDOMTreeNode): PaintOrderRect | null {
+    if (!node.snapshotNode?.boundingBox) {
+      return null;
+    }
+
+    const bounds = this.getElementBounds(node);
+    if (!bounds) {
+      return null;
+    }
+
+    return this.createPaintOrderRect(
+      bounds.x,
+      bounds.y,
+      bounds.x + bounds.width,
+      bounds.y + bounds.height
+    );
+  }
+
+  /**
+   * Tier 2: Paint Order Occlusion Filtering
+   *
+   * Checks if element is occluded by elements with higher paint order
+   * Ported from browser-use paint_order.py algorithm
+   *
+   * @param node The DOM node to check for paint order occlusion
+   * @returns boolean indicating if the element is occluded (true = occluded, should be ignored)
+   */
+  private checkPaintOrderOcclusion(node: EnhancedDOMTreeNode): boolean {
+    try {
+      // Skip elements without paint order or bounds
+      if (
+        node.snapshotNode?.paintOrder === undefined ||
+        node.snapshotNode?.paintOrder === null ||
+        !node.snapshotNode?.boundingBox
+      ) {
+        return false;
+      }
+
+      const paintOrder = node.snapshotNode.paintOrder;
+
+      // Initialize paint order filtering if needed
+      if (this.paintOrderRects.length === 0 && this.paintOrderProcessed.size === 0) {
+        this.initializePaintOrderFiltering();
+      }
+
+      // Skip if this paint order has already been processed
+      if (this.paintOrderProcessed.has(paintOrder)) {
+        return false;
+      }
+
+      // Create rectangle for this element
+      const elementRect = this.createRectFromNode(node);
+      if (!elementRect) {
+        return false;
+      }
+
+      // Check if element is covered by higher paint order elements
+      if (this.paintOrderContains(elementRect)) {
+        this.logger.debug(
+          `Element ${node.nodeId} occluded by higher paint order elements`
+        );
+        return true; // Element is occluded
+      }
+
+      // Process this paint order level
+      // Note: In browser-use, elements are processed in groups by paint order
+      // Here we handle individual elements as they come through detection
+      if (!this.shouldExcludeFromOcclusion(node)) {
+        this.paintOrderAdd(elementRect);
+      }
+
+      // Mark this paint order as processed
+      this.paintOrderProcessed.add(paintOrder);
+
+      return false; // Element is not occluded
+    } catch (error) {
+      this.logger.warn(
+        `Error in checkPaintOrderOcclusion for node ${node.nodeId}:`,
+        error
+      );
+      return false; // Don't filter out on error
     }
   }
 
@@ -251,53 +533,59 @@ export class InteractiveElementDetector {
         return true; // Special case for iframes
       }
 
-      // Tier 2: Search detection
+      // Tier 2: Paint order occlusion filtering
+      if (this.checkPaintOrderOcclusion(node)) {
+        await this.highlightElement(node, "occluded");
+        return false; // Element is occluded, not interactive
+      }
+
+      // Tier 3: Search detection
       if (this.checkSearchElements(node)) {
-        await this.highlightElement(node, "tier2");
+        await this.highlightElement(node, "tier3");
         return true;
       }
       if (this.checkSpecializedTags(node)) {
-        await this.highlightElement(node, "tier2");
+        await this.highlightElement(node, "tier3");
         return true;
       }
 
-      // Tier 3: Attribute-based detection
+      // Tier 4: Attribute-based detection
       if (this.checkEventHandlers(node)) {
-        await this.highlightElement(node, "tier3");
+        await this.highlightElement(node, "tier4");
         return true;
       }
       if (this.checkARIAAttributes(node)) {
-        await this.highlightElement(node, "tier3");
+        await this.highlightElement(node, "tier4");
         return true;
       }
       if (this.checkInputAttributes(node)) {
-        await this.highlightElement(node, "tier3");
+        await this.highlightElement(node, "tier4");
         return true;
       }
 
-      // Tier 4: Accessibility tree analysis
+      // Tier 5: Accessibility tree analysis
       if (this.checkAccessibilityProperties(node)) {
-        await this.highlightElement(node, "tier4");
+        await this.highlightElement(node, "tier5");
         return true;
       }
       if (this.checkAccessibilityRoles(node)) {
-        await this.highlightElement(node, "tier4");
+        await this.highlightElement(node, "tier5");
         return true;
       }
 
-      // Tier 5: Visual/structural indicators
+      // Tier 6: Visual/structural indicators
       if (this.checkIconElements(node)) {
-        await this.highlightElement(node, "tier5");
+        await this.highlightElement(node, "tier6");
         return true;
       }
       if (this.checkCursorStyle(node)) {
-        await this.highlightElement(node, "tier5");
+        await this.highlightElement(node, "tier6");
         return true;
       }
 
-      // Tier 6: Compound control detection
+      // Tier 7: Compound control detection
       if (await this.checkCompoundControls(node)) {
-        await this.highlightElement(node, "tier6");
+        await this.highlightElement(node, "tier7");
         return true;
       }
 
@@ -383,7 +671,7 @@ export class InteractiveElementDetector {
     };
   }
 
-  // Tier 2: Search Element Detection
+  // Tier 3: Search Element Detection
 
   /**
    * Check for search-related elements
@@ -436,7 +724,7 @@ export class InteractiveElementDetector {
     return INTERACTIVE_TAGS.includes(tag);
   }
 
-  // Tier 3: Attribute-based Detection
+  // Tier 4: Attribute-based Detection
 
   /**
    * Check for event handlers with enhanced detection
@@ -512,7 +800,7 @@ export class InteractiveElementDetector {
     return node.attributes?.contenteditable === "true";
   }
 
-  // Tier 4: Accessibility Tree Analysis
+  // Tier 5: Accessibility Tree Analysis
 
   /**
    * Extract actual value from CDP property object
@@ -638,7 +926,7 @@ export class InteractiveElementDetector {
     return interactiveRoles.includes(role);
   }
 
-  // Tier 5: Visual/Structural Indicators
+  // Tier 6: Visual/Structural Indicators
 
   /**
    * Check for icon-sized interactive elements
@@ -802,6 +1090,8 @@ export class InteractiveElementDetector {
     // Check if the element has pointer cursor style
     return node.snapshotNode?.cursorStyle === "pointer";
   }
+
+  // Tier 7: Compound Control Detection
 
   /**
    * Check for compound controls
@@ -1484,11 +1774,12 @@ export class InteractiveElementDetector {
     // Color scheme for different detection tiers
     const tierColors: Record<string, string> = {
       tier1: "#FF6B6B", // Red - Basic node type filtering
-      tier2: "#45B7D1", // Blue - Specialized tag detection
-      tier3: "#96CEB4", // Green - Event handler detection
-      tier4: "#DDA0DD", // Purple - Accessibility property analysis
-      tier5: "#FF8C42", // Orange - Size-based filtering
-      tier6: "#9B59B6", // Purple - Compound control detection
+      tier3: "#45B7D1", // Blue - Search detection (was tier2)
+      tier4: "#96CEB4", // Green - Event handler detection (was tier3)
+      tier5: "#DDA0DD", // Purple - Accessibility property analysis (was tier4)
+      tier6: "#FF8C42", // Orange - Size-based filtering (was tier5)
+      tier7: "#9B59B6", // Purple - Compound control detection (was tier6)
+      occluded: "#808080", // Gray - Paint order occlusion filtering
       default: "#FF6B6B", // Default red for unknown tiers
     };
 
