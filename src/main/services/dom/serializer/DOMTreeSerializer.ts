@@ -141,6 +141,13 @@ export class DOMTreeSerializer {
     await applyPaintOrderFiltering(simplifiedRoot, this.config);
     timings.paintOrderFiltering = Date.now() - paintOrderStart;
 
+    // Apply tree optimization to remove empty branches
+    const optimizeStart = Date.now();
+    applyTreeOptimization(simplifiedRoot);
+    timings.optimizeTreeStructure = Date.now() - optimizeStart;
+    const selectorMap = this.buildSelectorMap(simplifiedRoot);
+    const stats = this.calculateStats(simplifiedRoot);
+
     // Apply bounding box filtering as standalone stage
     const boundingBoxStart = Date.now();
     await applyBoundingBoxFiltering(
@@ -150,16 +157,9 @@ export class DOMTreeSerializer {
     );
     timings.boundingBoxFiltering = Date.now() - boundingBoxStart;
 
-    // Apply tree optimization to remove empty branches
-    const optimizeStart = Date.now();
-    const optimizedRoot = applyTreeOptimization(simplifiedRoot);
-    timings.optimizeTreeStructure = Date.now() - optimizeStart;
-    const selectorMap = this.buildSelectorMap(optimizedRoot);
-    const stats = this.calculateStats(optimizedRoot);
-
     // Log LLM representation for debugging
     try {
-      const llmRep = await this.generateLLMRepresentation(optimizedRoot);
+      const llmRep = await this.generateLLMRepresentation(simplifiedRoot);
       this.logger.debug("=== LLM DOM Representation ===");
       this.logger.debug(llmRep);
       this.logger.debug("=== End LLM DOM Representation ===");
@@ -171,7 +171,7 @@ export class DOMTreeSerializer {
 
     return {
       serializedState: {
-        root: optimizedRoot,
+        root: simplifiedRoot,
         selectorMap,
         timing: timings,
       },

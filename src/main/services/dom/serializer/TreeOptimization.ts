@@ -186,29 +186,25 @@ export function hasSemanticMeaning(node: SimplifiedNode): boolean {
  *
  * This function recursively processes the DOM tree to remove nodes that don't
  * contain meaningful content while preserving important structural and interactive elements.
+ * Operates directly on the node in place, following the same pattern as bounding box and paint order filtering.
  *
  * @param node The SimplifiedNode to optimize
- * @returns The optimized SimplifiedNode
  */
-export function applyTreeOptimization(node: SimplifiedNode): SimplifiedNode {
+export function applyTreeOptimization(node: SimplifiedNode): void {
   try {
     // First, optimize all children recursively
-    const optimizedChildren: SimplifiedNode[] = [];
+    const keptChildren: SimplifiedNode[] = [];
     for (const child of node.children) {
-      const optimizedChild = applyTreeOptimization(child);
-      if (shouldKeepNode(optimizedChild)) {
-        optimizedChildren.push(optimizedChild);
+      applyTreeOptimization(child);
+      if (shouldKeepNode(child)) {
+        keptChildren.push(child);
       }
     }
 
-    // Update the node with optimized children
-    node.children = optimizedChildren;
-    node.hasChildren = optimizedChildren.length > 0;
-
-    return node;
+    // Update the node with filtered children in place
+    node.children = keptChildren;
+    node.hasChildren = keptChildren.length > 0;
   } catch (error) {
     logger.error("Error in applyTreeOptimization:", error);
-    // Return original node if optimization fails
-    return node;
   }
 }
