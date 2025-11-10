@@ -5,4 +5,4 @@
  */
 
 export { DOMTreeSerializer } from './DOMTreeSerializer';
-export type { SerializationTiming } from './DOMTreeSerializer';
+export type { SerializationTiming } from '@shared/dom';

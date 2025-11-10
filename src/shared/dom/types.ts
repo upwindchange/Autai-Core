@@ -22,7 +22,7 @@ export enum NodeType {
 
 // Complete tree data for a target using official types
 export interface TargetAllTrees {
-  snapshot: CDP.DOMSnapshot.GetSnapshotResponse;
+  snapshot: CDP.DOMSnapshot.CaptureSnapshotResponse | null;
   domTree: CDP.DOM.GetDocumentResponse | null;
   axTree: CDP.Accessibility.GetFullAXTreeResponse;
   devicePixelRatio: number;
@@ -159,6 +159,16 @@ export interface SerializationConfig {
   opacityThreshold: number;
   containmentThreshold: number;
   maxInteractiveElements: number;
+
+  // Bounding box specific configuration
+  boundingBoxConfig?: {
+    minIconSize: number;
+    maxIconSize: number;
+    minIframeWidth: number;
+    minIframeHeight: number;
+    enableSizeFiltering: boolean;
+    enablePropagationFiltering: boolean;
+  };
 }
 
 export interface SerializationTiming {
@@ -179,6 +189,7 @@ export interface SerializationStats {
   newElements: number;
   occludedNodes: number;
   containedNodes: number;
+  sizeFilteredNodes: number;
 }
 
 export interface SerializedDOMState {
@@ -199,6 +210,8 @@ export interface SimplifiedNode {
   isNew: boolean;
   ignoredByPaintOrder: boolean;
   excludedByParent: boolean;
+  excludedByBoundingBox?: boolean;
+  exclusionReason?: 'size_filtered' | 'contained' | string;
   isShadowHost: boolean;
   isCompoundComponent: boolean;
 
@@ -214,8 +227,27 @@ export interface SimplifiedNode {
   tagName: string;
   textContent: string;
 
-  // Methods
-  llm_representation?(): Promise<string>;
+  }
+
+export interface ScrollInfo {
+  scrollWidth: number;
+  clientWidth: number;
+  scrollLeft: number;
+  scrollHeight: number;
+  clientHeight: number;
+  scrollTop: number;
+}
+
+export interface BoundsObject {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface CDPProperty {
+  type: string;
+  value: unknown;
 }
 
 export interface InteractiveDetectionResult {

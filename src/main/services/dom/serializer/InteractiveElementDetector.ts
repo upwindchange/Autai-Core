@@ -111,23 +111,7 @@ const COMPOUND_ELEMENT_TAGS = ["select", "details", "audio", "video"];
 // ARIA roles that should be virtualized as compound controls
 const COMPOUND_ARIA_ROLES = ["combobox", "slider", "spinbutton", "listbox"];
 
-// Propagating elements that can contain child interactive elements
-const PROPAGATING_ELEMENTS = [
-  { tag: "a", role: null },
-  { tag: "button", role: null },
-  { tag: "div", role: "button" },
-  { tag: "div", role: "combobox" },
-  { tag: "input", role: "combobox" },
-  { tag: "span", role: "button" },
-  { tag: "span", role: "combobox" },
-];
-
-// Default containment threshold for bounds propagation
-const DEFAULT_CONTAINMENT_THRESHOLD = 0.99;
-
-// Paint order filtering constants
-const OPACITY_THRESHOLD = 0.8; // Elements with opacity below this are excluded from occlusion calculation
-const TRANSPARENT_BACKGROUND = 'rgba(0, 0, 0, 0)'; // Transparent background color to check for
+// Note: PROPAGATING_ELEMENTS and DEFAULT_CONTAINMENT_THRESHOLD moved to BoundingBoxTypes.ts
 
 // Icon detection attributes
 const ICON_ATTRIBUTES = [
@@ -143,19 +127,6 @@ const ICON_ATTRIBUTES = [
   "data-qa",
   "id",
 ];
-
-// ==================== PAINT ORDER INFRASTRUCTURE ====================
-
-/**
- * Rectangle interface for paint order calculations
- * Ported from browser-use paint_order.py
- */
-interface PaintOrderRect {
-  readonly x1: number;
-  readonly y1: number;
-  readonly x2: number;
-  readonly y2: number;
-}
 
 // Icon class patterns
 const ICON_CLASS_PATTERNS = [
@@ -183,305 +154,21 @@ const ICON_CLASS_PATTERNS = [
 export class InteractiveElementDetector {
   private webContents: WebContents;
   private logger = log.scope("InteractiveElementDetector");
-  private devicePixelRatio: number = 1; // Default ratio, will be updated dynamically
-
-  // Paint order filtering state
-  private paintOrderProcessed: Set<number> = new Set();
+  private devicePixelRatio: number | null = null; // Will be populated lazily when needed
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
     this.logger.info(
       "InteractiveElementDetector initialized with highlighting support"
     );
-    this.initializeDevicePixelRatio();
-  }
-
-  /**
-   * Initialize device pixel ratio for accurate size calculations
-   */
-  private async initializeDevicePixelRatio(): Promise<void> {
-    try {
-      const result = (await sendCDPCommand(
-        this.webContents,
-        "Runtime.evaluate",
-        {
-          expression: "window.devicePixelRatio || 1",
-        },
-        this.logger
-      )) as { result: { value: number } };
-      this.devicePixelRatio = result.result.value || 1;
-      this.logger.info(
-        `Device pixel ratio initialized: ${this.devicePixelRatio}`
-      );
-    } catch (error) {
-      this.logger.warn(
-        "Failed to get device pixel ratio, using default value of 1:",
-        error
-      );
-      this.devicePixelRatio = 1;
-    }
-  }
-
-  // ==================== PAINT ORDER METHODS ====================
-
-  /**
-   * Create a paint order rectangle
-   */
-  private createPaintOrderRect(x1: number, y1: number, x2: number, y2: number): PaintOrderRect {
-    if (!(x1 <= x2 && y1 <= y2)) {
-      throw new Error('Invalid rectangle coordinates');
-    }
-    return { x1, y1, x2, y2 };
   }
 
   
   /**
-   * Check if rectangle a intersects with rectangle b
+   * Get the current device pixel ratio
    */
-  private rectIntersects(a: PaintOrderRect, b: PaintOrderRect): boolean {
-    return !(
-      a.x2 <= b.x1 ||
-      b.x2 <= a.x1 ||
-      a.y2 <= b.y1 ||
-      b.y2 <= a.y1
-    );
-  }
-
-  /**
-   * Check if rectangle a completely contains rectangle b
-   */
-  private rectContains(a: PaintOrderRect, b: PaintOrderRect): boolean {
-    return (
-      a.x1 <= b.x1 &&
-      a.y1 <= b.y1 &&
-      a.x2 >= b.x2 &&
-      a.y2 >= b.y2
-    );
-  }
-
-  // Paint order rectangle union state
-  private paintOrderRects: PaintOrderRect[] = [];
-
-  /**
-   * Split rectangle a by rectangle b, returning a \ b
-   * Returns up to 4 rectangles
-   */
-  private splitDiff(a: PaintOrderRect, b: PaintOrderRect): PaintOrderRect[] {
-    const parts: PaintOrderRect[] = [];
-
-    // Bottom slice
-    if (a.y1 < b.y1) {
-      parts.push({ x1: a.x1, y1: a.y1, x2: a.x2, y2: b.y1 });
-    }
-
-    // Top slice
-    if (b.y2 < a.y2) {
-      parts.push({ x1: a.x1, y1: b.y2, x2: a.x2, y2: a.y2 });
-    }
-
-    // Middle (vertical) strip: y overlap is [max(a.y1,b.y1), min(a.y2,b.y2)]
-    const yLo = Math.max(a.y1, b.y1);
-    const yHi = Math.min(a.y2, b.y2);
-
-    // Left slice
-    if (a.x1 < b.x1) {
-      parts.push({ x1: a.x1, y1: yLo, x2: b.x1, y2: yHi });
-    }
-
-    // Right slice
-    if (b.x2 < a.x2) {
-      parts.push({ x1: b.x2, y1: yLo, x2: a.x2, y2: yHi });
-    }
-
-    return parts;
-  }
-
-  /**
-   * Check if rectangle r is fully covered by the current paint order union
-   */
-  private paintOrderContains(r: PaintOrderRect): boolean {
-    if (this.paintOrderRects.length === 0) {
-      return false;
-    }
-
-    let stack = [r];
-    for (const s of this.paintOrderRects) {
-      const newStack: PaintOrderRect[] = [];
-      for (const piece of stack) {
-        if (this.rectContains(s, piece)) {
-          // piece completely gone
-          continue;
-        }
-        if (this.rectIntersects(piece, s)) {
-          newStack.push(...this.splitDiff(piece, s));
-        } else {
-          newStack.push(piece);
-        }
-      }
-      if (newStack.length === 0) {
-        // everything eaten – covered
-        return true;
-      }
-      stack = newStack;
-    }
-    return false; // something survived
-  }
-
-  /**
-   * Insert rectangle r into paint order union unless it is already covered
-   * Returns true if the union grew
-   */
-  private paintOrderAdd(r: PaintOrderRect): boolean {
-    if (this.paintOrderContains(r)) {
-      return false;
-    }
-
-    let pending = [r];
-    let i = 0;
-    while (i < this.paintOrderRects.length) {
-      const s = this.paintOrderRects[i];
-      const newPending: PaintOrderRect[] = [];
-      let changed = false;
-
-      for (const piece of pending) {
-        if (this.rectIntersects(piece, s)) {
-          newPending.push(...this.splitDiff(piece, s));
-          changed = true;
-        } else {
-          newPending.push(piece);
-        }
-      }
-
-      pending = newPending;
-      if (changed) {
-        // s unchanged; proceed with next existing rectangle
-        i += 1;
-      } else {
-        i += 1;
-      }
-    }
-
-    // Any left-over pieces are new, non-overlapping areas
-    this.paintOrderRects.push(...pending);
-    return true;
-  }
-
-  /**
-   * Initialize paint order filtering for a new detection cycle
-   */
-  private initializePaintOrderFiltering(): void {
-    this.paintOrderProcessed.clear();
-    this.paintOrderRects = [];
-  }
-
-  /**
-   * Check if element should be excluded from occlusion calculation due to transparency
-   */
-  private shouldExcludeFromOcclusion(node: EnhancedDOMTreeNode): boolean {
-    if (!node.snapshotNode?.computedStyles) {
-      return false;
-    }
-
-    // Check opacity threshold
-    const opacity = parseFloat(node.snapshotNode.computedStyles.opacity || '1');
-    if (opacity < OPACITY_THRESHOLD) {
-      return true;
-    }
-
-    // Check for transparent background
-    const backgroundColor = node.snapshotNode.computedStyles['background-color'];
-    if (backgroundColor === TRANSPARENT_BACKGROUND) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Create rectangle from node bounds in CSS pixels
-   */
-  private createRectFromNode(node: EnhancedDOMTreeNode): PaintOrderRect | null {
-    if (!node.snapshotNode?.boundingBox) {
-      return null;
-    }
-
-    const bounds = this.getElementBounds(node);
-    if (!bounds) {
-      return null;
-    }
-
-    return this.createPaintOrderRect(
-      bounds.x,
-      bounds.y,
-      bounds.x + bounds.width,
-      bounds.y + bounds.height
-    );
-  }
-
-  /**
-   * Tier 2: Paint Order Occlusion Filtering
-   *
-   * Checks if element is occluded by elements with higher paint order
-   * Ported from browser-use paint_order.py algorithm
-   *
-   * @param node The DOM node to check for paint order occlusion
-   * @returns boolean indicating if the element is occluded (true = occluded, should be ignored)
-   */
-  private checkPaintOrderOcclusion(node: EnhancedDOMTreeNode): boolean {
-    try {
-      // Skip elements without paint order or bounds
-      if (
-        node.snapshotNode?.paintOrder === undefined ||
-        node.snapshotNode?.paintOrder === null ||
-        !node.snapshotNode?.boundingBox
-      ) {
-        return false;
-      }
-
-      const paintOrder = node.snapshotNode.paintOrder;
-
-      // Initialize paint order filtering if needed
-      if (this.paintOrderRects.length === 0 && this.paintOrderProcessed.size === 0) {
-        this.initializePaintOrderFiltering();
-      }
-
-      // Skip if this paint order has already been processed
-      if (this.paintOrderProcessed.has(paintOrder)) {
-        return false;
-      }
-
-      // Create rectangle for this element
-      const elementRect = this.createRectFromNode(node);
-      if (!elementRect) {
-        return false;
-      }
-
-      // Check if element is covered by higher paint order elements
-      if (this.paintOrderContains(elementRect)) {
-        this.logger.debug(
-          `Element ${node.nodeId} occluded by higher paint order elements`
-        );
-        return true; // Element is occluded
-      }
-
-      // Process this paint order level
-      // Note: In browser-use, elements are processed in groups by paint order
-      // Here we handle individual elements as they come through detection
-      if (!this.shouldExcludeFromOcclusion(node)) {
-        this.paintOrderAdd(elementRect);
-      }
-
-      // Mark this paint order as processed
-      this.paintOrderProcessed.add(paintOrder);
-
-      return false; // Element is not occluded
-    } catch (error) {
-      this.logger.warn(
-        `Error in checkPaintOrderOcclusion for node ${node.nodeId}:`,
-        error
-      );
-      return false; // Don't filter out on error
-    }
+  getDevicePixelRatio(): number {
+    return this.devicePixelRatio ?? 1; // Return 1 as fallback if still null
   }
 
   /**
@@ -528,23 +215,19 @@ export class InteractiveElementDetector {
       if (!this.passesVisualFilter(node)) return false;
       if (!this.checkNodeType(node)) return false;
       if (this.checkSkippedElements(node)) return false;
-      if (this.checkIframeSize(node)) {
+      if (await this.checkIframeSize(node)) {
         await this.highlightElement(node, "tier1");
         return true; // Special case for iframes
       }
 
-      // Tier 2: Paint order occlusion filtering
-      if (this.checkPaintOrderOcclusion(node)) {
-        await this.highlightElement(node, "occluded");
-        return false; // Element is occluded, not interactive
-      }
-
-      // Tier 3: Search detection
-      if (this.checkSearchElements(node)) {
-        await this.highlightElement(node, "tier3");
+      // Tier 2: Specialized tag detection
+      if (this.checkSpecializedTags(node)) {
+        await this.highlightElement(node, "tier2");
         return true;
       }
-      if (this.checkSpecializedTags(node)) {
+
+      // Tier 3: Search-related element detection
+      if (this.checkSearchElements(node)) {
         await this.highlightElement(node, "tier3");
         return true;
       }
@@ -574,7 +257,7 @@ export class InteractiveElementDetector {
       }
 
       // Tier 6: Visual/structural indicators
-      if (this.checkIconElements(node)) {
+      if (await this.checkIconElements(node)) {
         await this.highlightElement(node, "tier6");
         return true;
       }
@@ -623,12 +306,12 @@ export class InteractiveElementDetector {
    * Check iframe size requirements
    * Only iframes larger than 100x100px are considered interactive
    */
-  private checkIframeSize(node: EnhancedDOMTreeNode): boolean {
+  private async checkIframeSize(node: EnhancedDOMTreeNode): Promise<boolean> {
     if (node.tag?.toLowerCase() !== "iframe") {
       return false;
     }
 
-    const size = this.getElementSize(node);
+    const size = await this.getElementSize(node);
     if (!size) {
       this.logger.warn(`Could not get size for iframe ${node.nodeId}`);
       return false;
@@ -650,24 +333,47 @@ export class InteractiveElementDetector {
   /**
    * Convert device pixels to CSS pixels for accurate sizing
    */
-  private deviceToCSSPixels(devicePixels: number): number {
+  private async deviceToCSSPixels(devicePixels: number): Promise<number> {
+    // Populate devicePixelRatio if null
+    if (this.devicePixelRatio === null) {
+      try {
+        const result = (await sendCDPCommand(
+          this.webContents,
+          "Runtime.evaluate",
+          {
+            expression: "window.devicePixelRatio || 1",
+          },
+          this.logger
+        )) as { result: { value: number } };
+        this.devicePixelRatio = result.result.value || 1;
+        this.logger.info(
+          `Device pixel ratio populated: ${this.devicePixelRatio}`
+        );
+      } catch (error) {
+        this.logger.warn(
+          "Failed to get device pixel ratio, using default value of 1:",
+          error
+        );
+        this.devicePixelRatio = 1;
+      }
+    }
     return devicePixels / this.devicePixelRatio;
   }
 
   /**
    * Get element size in CSS pixels
    */
-  private getElementSize(
+  private async getElementSize(
     node: EnhancedDOMTreeNode
-  ): { width: number; height: number } | null {
-    if (!node.snapshotNode?.boundingBox) {
+  ): Promise<{ width: number; height: number } | null> {
+    if (!node.snapshotNode?.bounds) {
       return null;
     }
 
-    const { width, height } = node.snapshotNode.boundingBox;
+    const { width, height } = node.snapshotNode.bounds;
     return {
-      width: this.deviceToCSSPixels(width),
-      height: this.deviceToCSSPixels(height),
+      width: await this.deviceToCSSPixels(width),
+      height: await this.deviceToCSSPixels(height),
     };
   }
 
@@ -806,9 +512,9 @@ export class InteractiveElementDetector {
    * Extract actual value from CDP property object
    * Handles both direct values and CDP object format: {type: "boolean", value: true}
    */
-  private extractPropValue(prop: any): any {
+  private extractPropValue(prop: unknown): unknown {
     // Handle CDP object format
-    if (typeof prop === 'object' && prop !== null && 'value' in prop) {
+    if (typeof prop === "object" && prop !== null && "value" in prop) {
       return prop.value;
     }
     // Handle direct values
@@ -828,7 +534,7 @@ export class InteractiveElementDetector {
       // Check for blocker properties first (return false if true)
       if (
         BLOCKER_PROPERTIES.includes(propName) &&
-        typeof propValue === 'boolean' &&
+        typeof propValue === "boolean" &&
         propValue === true
       ) {
         return false;
@@ -837,7 +543,7 @@ export class InteractiveElementDetector {
       // Check for direct interactivity properties (return true if true)
       if (
         DIRECT_INTERACTIVITY.includes(propName) &&
-        typeof propValue === 'boolean' &&
+        typeof propValue === "boolean" &&
         propValue === true
       ) {
         return true;
@@ -846,17 +552,14 @@ export class InteractiveElementDetector {
       // Check for interactive state properties (return true if true)
       if (
         INTERACTIVE_STATES.includes(propName) &&
-        typeof propValue === 'boolean' &&
+        typeof propValue === "boolean" &&
         propValue === true
       ) {
         return true;
       }
 
       // Check for form properties (return true if present)
-      if (
-        FORM_PROPERTIES.includes(propName) &&
-        propValue !== undefined
-      ) {
+      if (FORM_PROPERTIES.includes(propName) && propValue !== undefined) {
         return true;
       }
     }
@@ -932,9 +635,9 @@ export class InteractiveElementDetector {
    * Check for icon-sized interactive elements
    * Detects 10-50px elements that might be icons with interactive attributes
    */
-  private checkIconElements(node: EnhancedDOMTreeNode): boolean {
+  private async checkIconElements(node: EnhancedDOMTreeNode): Promise<boolean> {
     // First check if element size is within icon range
-    const size = this.getElementSize(node);
+    const size = await this.getElementSize(node);
     if (!size) {
       return false;
     }
@@ -1628,140 +1331,6 @@ export class InteractiveElementDetector {
     return "Unknown compound control";
   }
 
-  // ==================== BOUNDS PROPAGATION SYSTEM ====================
-
-  /**
-   * Check if element is a propagating element that can contain child interactive elements
-   */
-  isPropagatingElement(node: EnhancedDOMTreeNode): boolean {
-    if (!node.tag) return false;
-
-    const tag = node.tag.toLowerCase();
-    const role = node.attributes.role?.toLowerCase() || null;
-
-    return PROPAGATING_ELEMENTS.some(
-      (propagating) => propagating.tag === tag && propagating.role === role
-    );
-  }
-
-  /**
-   * Check if child element is contained within parent bounds
-   */
-  isContainedInParent(
-    childNode: EnhancedDOMTreeNode,
-    parentNode: EnhancedDOMTreeNode,
-    threshold: number = DEFAULT_CONTAINMENT_THRESHOLD
-  ): boolean {
-    const childBounds = childNode.snapshotNode?.boundingBox;
-    const parentBounds = parentNode.snapshotNode?.boundingBox;
-
-    if (!childBounds || !parentBounds) {
-      return false;
-    }
-
-    // Calculate intersection area
-    const xOverlap = Math.max(
-      0,
-      Math.min(
-        childBounds.x + childBounds.width,
-        parentBounds.x + parentBounds.width
-      ) - Math.max(childBounds.x, parentBounds.x)
-    );
-    const yOverlap = Math.max(
-      0,
-      Math.min(
-        childBounds.y + childBounds.height,
-        parentBounds.y + parentBounds.height
-      ) - Math.max(childBounds.y, parentBounds.y)
-    );
-
-    const intersectionArea = xOverlap * yOverlap;
-    const childArea = childBounds.width * childBounds.height;
-
-    if (childArea === 0) {
-      return false;
-    }
-
-    const containmentRatio = intersectionArea / childArea;
-    return containmentRatio >= threshold;
-  }
-
-  /**
-   * Check if contained element should be kept (exception rules)
-   */
-  shouldKeepContainedElement(node: EnhancedDOMTreeNode): boolean {
-    const tag = node.tag?.toLowerCase();
-
-    // Always keep form elements
-    if (
-      ["input", "select", "textarea", "label", "option"].includes(tag || "")
-    ) {
-      return true;
-    }
-
-    // Keep other propagating elements (prevents event stop propagation conflicts)
-    if (this.isPropagatingElement(node)) {
-      return true;
-    }
-
-    // Keep elements with explicit onclick handlers
-    if (node.attributes.onclick && node.attributes.onclick !== "") {
-      return true;
-    }
-
-    // Keep elements with meaningful aria-label
-    if (
-      node.attributes["aria-label"] &&
-      node.attributes["aria-label"].trim() !== ""
-    ) {
-      return true;
-    }
-
-    // Keep interactive role elements
-    const role = node.attributes.role?.toLowerCase();
-    if (
-      role &&
-      ["button", "link", "checkbox", "radio", "menuitem", "tab"].includes(role)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Get bounding box for element in CSS pixels
-   */
-  getElementBounds(
-    node: EnhancedDOMTreeNode
-  ): { x: number; y: number; width: number; height: number } | null {
-    if (!node.snapshotNode?.boundingBox) {
-      return null;
-    }
-
-    const bounds = node.snapshotNode.boundingBox;
-    return {
-      x: this.deviceToCSSPixels(bounds.x),
-      y: this.deviceToCSSPixels(bounds.y),
-      width: this.deviceToCSSPixels(bounds.width),
-      height: this.deviceToCSSPixels(bounds.height),
-    };
-  }
-
-  /**
-   * Find propagating parent for bounds checking
-   */
-  findPropagatingParent(node: EnhancedDOMTreeNode): EnhancedDOMTreeNode | null {
-    let current = node.parent;
-    while (current) {
-      if (this.isPropagatingElement(current)) {
-        return current;
-      }
-      current = current.parent;
-    }
-    return null;
-  }
-
   /**
    * Lightweight development highlighting using only DOM.setAttributeValue
    */
@@ -1774,11 +1343,12 @@ export class InteractiveElementDetector {
     // Color scheme for different detection tiers
     const tierColors: Record<string, string> = {
       tier1: "#FF6B6B", // Red - Basic node type filtering
-      tier3: "#45B7D1", // Blue - Search detection (was tier2)
-      tier4: "#96CEB4", // Green - Event handler detection (was tier3)
-      tier5: "#DDA0DD", // Purple - Accessibility property analysis (was tier4)
-      tier6: "#FF8C42", // Orange - Size-based filtering (was tier5)
-      tier7: "#9B59B6", // Purple - Compound control detection (was tier6)
+      tier2: "#FFB366", // Orange - Specialized tag detection
+      tier3: "#45B7D1", // Blue - Search detection
+      tier4: "#96CEB4", // Green - Event handler detection
+      tier5: "#DDA0DD", // Purple - Accessibility property analysis
+      tier6: "#FF8C42", // Orange - Visual indicators (cursor style)
+      tier7: "#9B59B6", // Purple - Compound control detection
       occluded: "#808080", // Gray - Paint order occlusion filtering
       default: "#FF6B6B", // Default red for unknown tiers
     };

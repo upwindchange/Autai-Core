@@ -15,6 +15,7 @@ import type {
   SerializationTiming,
   SerializationStats,
   EnhancedSnapshotNode,
+  BoundsObject,
 } from "@shared/dom";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 import {
@@ -54,6 +55,8 @@ export class DOMService implements IDOMService {
 
       const trees = await this.getAllTrees();
 
+      this.logger.debug(`CDP Snapshot processed: ${trees.snapshot ? 'available' : 'missing'}`);
+
       this.logger.debug("Building enhanced DOM tree from CDP data");
       const enhancedTree = this.buildEnhancedDOMTree(trees);
 
@@ -84,7 +87,7 @@ export class DOMService implements IDOMService {
           },
           this.logger
         ),
-        sendCDPCommand<CDP.DOMSnapshot.GetSnapshotResponse>(
+        sendCDPCommand<CDP.DOMSnapshot.CaptureSnapshotResponse>(
           this.webContents,
           "DOMSnapshot.captureSnapshot",
           {
@@ -111,14 +114,7 @@ export class DOMService implements IDOMService {
       ]);
 
       return {
-        snapshot:
-          snapshot.status === "fulfilled"
-            ? snapshot.value
-            : {
-                domNodes: [],
-                layoutTreeNodes: [],
-                computedStyles: [],
-              },
+        snapshot: snapshot.status === "fulfilled" ? snapshot.value : null,
         domTree: domTree.status === "fulfilled" ? domTree.value : null,
         axTree: axTree.status === "fulfilled" ? axTree.value : { nodes: [] },
         devicePixelRatio: 1.0, // Simplified - use basic scaling
@@ -139,7 +135,6 @@ export class DOMService implements IDOMService {
     this.logger.debug("Building enhanced DOM tree", {
       hasDomTree: !!domTree,
       hasSnapshot: !!snapshot,
-      snapshotDomNodes: snapshot?.domNodes?.length || 0,
       axTreeNodes: axTree?.nodes?.length || 0,
     });
 
@@ -152,6 +147,16 @@ export class DOMService implements IDOMService {
     }
 
     const snapshotLookup = this.buildSnapshotLookup(snapshot, 1.0);
+    this.logger.debug(
+      `DOM Service: snapshotLookup created with ${
+        Object.keys(snapshotLookup).length
+      } entries`
+    );
+    this.logger.debug(
+      `DOM Service: snapshot has ${
+        snapshot?.documents?.length || 0
+      } documents`
+    );
     const nodeLookup: Record<number, EnhancedDOMTreeNode> = {};
 
     // Build enhanced tree
@@ -168,62 +173,92 @@ export class DOMService implements IDOMService {
   }
 
   /**
-   * Build snapshot lookup using official DOMSnapshot structure
+   * Build snapshot lookup using actual DOMSnapshot.captureSnapshot response structure
    */
   private buildSnapshotLookup(
-    snapshot: CDP.DOMSnapshot.GetSnapshotResponse,
+    snapshot: CDP.DOMSnapshot.CaptureSnapshotResponse | null,
     _devicePixelRatio: number
   ): Record<number, EnhancedSnapshotNode> {
     const lookup: Record<number, EnhancedSnapshotNode> = {};
 
-    if (
-      !snapshot.domNodes ||
-      !snapshot.layoutTreeNodes ||
-      !snapshot.computedStyles
-    ) {
+    if (!snapshot || !snapshot.documents || snapshot.documents.length === 0) {
       return lookup;
     }
 
-    // Create index -> ComputedStyle mapping
-    const computedStyleMap = new Map<number, CDP.DOMSnapshot.ComputedStyle>();
-    snapshot.computedStyles.forEach((style, index) => {
-      computedStyleMap.set(index, style);
-    });
+    const doc = snapshot.documents[0];
+    const { layout, nodes } = doc;
 
-    // Build lookup from layout tree nodes (using domNodeIndex to map to DOM nodes)
-    for (const layoutNode of snapshot.layoutTreeNodes) {
-      const domNode = snapshot.domNodes[layoutNode.domNodeIndex];
-      if (!domNode) continue;
-
-      const backendNodeId = domNode.backendNodeId;
-
-      let bounds: CDP.DOM.Rect | null = null;
-      let computedStyles: Record<string, string> | null = null;
-      const isClickable = false; // Not available in official types, default to false
-
-      // Create bounds from layout node
-      if (layoutNode.boundingBox) {
-        bounds = layoutNode.boundingBox;
-      }
-
-      // Get computed styles
-      if (layoutNode.styleIndex !== undefined) {
-        const style = computedStyleMap.get(layoutNode.styleIndex);
-        if (style?.properties) {
-          computedStyles = {};
-          for (const prop of style.properties) {
-            computedStyles[prop.name] = prop.value;
-          }
-        }
-      }
-
-      lookup[backendNodeId] = {
-        bounds,
-        computedStyles,
-        isClickable,
-      };
+    if (!layout || !nodes || !layout.nodeIndex || !layout.bounds || !nodes.backendNodeId) {
+      return lookup;
     }
 
+  
+    // Build lookup from layout.nodeIndex correlating with nodes.backendNodeId
+    for (let i = 0; i < layout.nodeIndex.length; i++) {
+      const nodeArrayIndex = layout.nodeIndex[i];
+
+      // Ensure the nodeArrayIndex is valid
+      if (nodeArrayIndex >= nodes.backendNodeId.length) {
+        this.logger.warn(`Skipping layout index ${i}: nodeArrayIndex ${nodeArrayIndex} exceeds nodes.backendNodeId length ${nodes.backendNodeId.length}`);
+        continue;
+      }
+
+      const backendNodeId = nodes.backendNodeId[nodeArrayIndex];
+
+      // Extract bounds from layout.bounds array
+      // From diagnostic logs, the bounds appear to be individual x,y,width,height values
+      // Each layout entry should have its own bounds object in the bounds array
+      // The bounds array length equals nodeIndex length, so it's 1:1 mapping
+      if (i < layout.bounds.length) {
+        // Based on diagnostic logs, it seems each entry in bounds array is a complete bounds object
+        // Let's handle different possible structures:
+        let bounds: CDP.DOM.Rect;
+
+        if (Array.isArray(layout.bounds[i])) {
+          // If bounds[i] is an array with 4+ values [x,y,width,height,...]
+          const boundsArray = layout.bounds[i];
+          if (boundsArray.length >= 4) {
+            bounds = {
+              x: boundsArray[0],
+              y: boundsArray[1],
+              width: boundsArray[2],
+              height: boundsArray[3]
+            };
+          } else {
+            // Invalid bounds array, skip
+            this.logger.warn(`Skipping layout index ${i}: bounds array has insufficient length ${boundsArray.length}`);
+            continue;
+          }
+        } else if (typeof layout.bounds[i] === 'object' && layout.bounds[i] !== null) {
+          // If bounds[i] is an object with x,y,width,height properties
+          const boundsObj = layout.bounds[i] as unknown as BoundsObject;
+          bounds = {
+            x: boundsObj.x || 0,
+            y: boundsObj.y || 0,
+            width: boundsObj.width || 0,
+            height: boundsObj.height || 0
+          };
+        } else {
+          // Invalid bounds structure, skip
+          this.logger.warn(`Skipping layout index ${i}: bounds has invalid type ${typeof layout.bounds[i]}`);
+          continue;
+        }
+
+        // Get isClickable if available
+        const isClickable = nodes.isClickable?.[nodeArrayIndex] || false;
+
+        // Store in lookup
+        lookup[backendNodeId] = {
+          bounds,
+          computedStyles: null, // Not available in this structure
+          isClickable,
+        };
+      } else {
+        this.logger.warn(`Skipping layout index ${i}: bounds index ${i} exceeds bounds.length ${layout.bounds.length}`);
+      }
+    }
+
+  
     return lookup;
   }
 
@@ -426,16 +461,8 @@ export class DOMService implements IDOMService {
         `DOM tree serialized: ${result.stats.interactiveElements} interactive elements`
       );
 
-      // Convert timing to expected format
-      const convertedTiming: SerializationTiming = {
-        total: result.timing.serialize_dom_tree_total,
-        createSimplifiedTree: 0,
-        paintOrderFiltering: 0,
-        optimizeTreeStructure: 0,
-        boundingBoxFiltering: 0,
-        assignInteractiveIndices: 0,
-        markNewElements: 0,
-      };
+      // Use timing from result directly (already in correct format)
+      const convertedTiming: SerializationTiming = result.timing;
 
       return {
         serializedState: result.serializedState,
