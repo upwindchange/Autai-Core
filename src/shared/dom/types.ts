@@ -73,6 +73,7 @@ export interface EnhancedDOMTreeNode
     | "shadowRootType"
     | "contentDocument"
     | "shadowRoots"
+    | "backendNodeId"
   > {
   // Override children with enhanced type
   children?: EnhancedDOMTreeNode[];
@@ -113,6 +114,9 @@ export interface EnhancedDOMTreeNode
 
   // UUID for identification (custom for app logic)
   uuid?: string;
+
+  // Backend node ID from Chrome DevTools Protocol for stable identification
+  backendNodeId?: number;
 
   // Helper properties (custom for app logic)
   tag?: string;

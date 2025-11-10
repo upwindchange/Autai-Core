@@ -78,6 +78,11 @@ export class DOMTreeSerializer {
   private interactiveDetector: InteractiveElementDetector;
   private logger = log.scope("DOMTreeSerializer");
 
+  // Caching properties for stable node identification
+  private _selectorMap: DOMSelectorMap = {};
+  private _previousCachedSelectorMap: DOMSelectorMap | undefined;
+  private _clickableCache: Map<number, boolean> = new Map();
+
   constructor(
     _webContents: WebContents,
     config: Partial<SerializationConfig> = {}
@@ -118,17 +123,25 @@ export class DOMTreeSerializer {
       markNewElements: 0,
     };
 
-    // Reset counter
+    // Reset counter and caches
     this.interactiveCounter = 1;
+    this._selectorMap = {};
+    this._clickableCache.clear();
 
     // Get previous selector map for change detection
-    const previousSelectorMap = previousState?.selectorMap;
+    this._previousCachedSelectorMap = previousState?.selectorMap;
+
+    // Log caching information
+    this.logger.debug("DOM Tree Serialization - Caching Info", {
+      hasPreviousState: !!previousState,
+      previousSelectorMapSize: this._previousCachedSelectorMap ? Object.keys(this._previousCachedSelectorMap).length : 0,
+      cacheReset: true
+    });
 
     // Single-pass serialization with on-the-fly highlighting
     const createSimplifiedTreeStart = Date.now();
     const simplifiedRoot = await this.createSimplifiedNode(
-      rootNode,
-      previousSelectorMap
+      rootNode
     );
     timings.createSimplifiedTree = Date.now() - createSimplifiedTreeStart;
 
@@ -145,7 +158,6 @@ export class DOMTreeSerializer {
     const optimizeStart = Date.now();
     applyTreeOptimization(simplifiedRoot);
     timings.optimizeTreeStructure = Date.now() - optimizeStart;
-    const selectorMap = this.buildSelectorMap(simplifiedRoot);
     const stats = this.calculateStats(simplifiedRoot);
 
     // Apply bounding box filtering as standalone stage
@@ -169,10 +181,22 @@ export class DOMTreeSerializer {
 
     timings.total = Date.now() - startTime;
 
+    // Log final caching statistics
+    this.logger.info("DOM Tree Serialization - Final Stats", {
+      interactiveElementsFound: stats.interactiveElements,
+      newElementsDetected: stats.newElements,
+      selectorMapSize: Object.keys(this._selectorMap).length,
+      clickableCacheSize: this._clickableCache.size,
+      totalTime: timings.total,
+      cacheEfficiency: this._clickableCache.size > 0 ?
+        `Cache contains ${this._clickableCache.size} cached interactive detections` :
+        'No cache hits in this run'
+    });
+
     return {
       serializedState: {
         root: simplifiedRoot,
-        selectorMap,
+        selectorMap: this._selectorMap,
         timing: timings,
       },
       timing: timings,
@@ -184,8 +208,7 @@ export class DOMTreeSerializer {
    * Create simplified node (single pass with on-the-fly highlighting)
    */
   private async createSimplifiedNode(
-    node: EnhancedDOMTreeNode,
-    previousSelectorMap?: DOMSelectorMap
+    node: EnhancedDOMTreeNode
   ): Promise<SimplifiedNode | null> {
     // Skip certain tags
     if (node.tag && SKIP_TAGS.includes(node.tag)) {
@@ -230,8 +253,7 @@ export class DOMTreeSerializer {
     if (node.actualChildren) {
       for (const child of node.actualChildren) {
         const simplifiedChild = await this.createSimplifiedNode(
-          child,
-          previousSelectorMap
+          child
         );
         if (simplifiedChild) {
           simplified.children.push(simplifiedChild);
@@ -243,8 +265,7 @@ export class DOMTreeSerializer {
     if (node.shadowRoots) {
       for (const shadowRoot of node.shadowRoots) {
         const simplifiedShadow = await this.createSimplifiedNode(
-          shadowRoot,
-          previousSelectorMap
+          shadowRoot
         );
         if (simplifiedShadow) {
           simplified.children.push(simplifiedShadow);
@@ -252,62 +273,64 @@ export class DOMTreeSerializer {
       }
     }
 
-    // Check if interactive using the dedicated detector with on-the-fly highlighting
+    // Check if interactive using the dedicated detector with caching
     if (simplified.shouldDisplay) {
-      const isInteractive = await this.interactiveDetector.isInteractive(node);
+      const isInteractive = await this.isInteractiveCached(node);
       if (isInteractive) {
         simplified.interactiveIndex = this.interactiveCounter++;
         simplified.interactiveElement = true;
+
+        // Add to selector map using backendNodeId for stable identification
+        if (node.backendNodeId) {
+          this._selectorMap[node.backendNodeId] = node;
+        }
       }
     }
 
     // Mark as new based on comparison with previous state
-    simplified.isNew = this.isNewElement(node, previousSelectorMap);
+    simplified.isNew = this.isNewElement(node);
 
     return simplified;
+  }
+
+  /**
+   * Cached version of interactive element detection
+   */
+  private async isInteractiveCached(node: EnhancedDOMTreeNode): Promise<boolean> {
+    if (!node.backendNodeId) {
+      // Fallback to direct detection if no backendNodeId
+      return this.interactiveDetector.isInteractive(node);
+    }
+
+    if (this._clickableCache.has(node.backendNodeId)) {
+      this.logger.debug(`Cache HIT for interactive detection: backendNodeId=${node.backendNodeId}`);
+      return this._clickableCache.get(node.backendNodeId)!;
+    }
+
+    this.logger.debug(`Cache MISS for interactive detection: backendNodeId=${node.backendNodeId}`);
+    const isInteractive = await this.interactiveDetector.isInteractive(node);
+    this._clickableCache.set(node.backendNodeId, isInteractive);
+
+    return isInteractive;
   }
 
   /**
    * Check if element is new compared to previous state
    */
   private isNewElement(
-    node: EnhancedDOMTreeNode,
-    previousSelectorMap?: DOMSelectorMap
+    node: EnhancedDOMTreeNode
   ): boolean {
-    if (!previousSelectorMap) {
+    if (!this._previousCachedSelectorMap) {
       return true; // First run, everything is new
     }
 
     // Check if node's backendNodeId exists in previous selector map
-    return !Object.values(previousSelectorMap).some(
+    return !Object.values(this._previousCachedSelectorMap).some(
       (prevNode) => prevNode.backendNodeId === node.backendNodeId
     );
   }
 
-  /**
-   * Build selector map for interactive elements
-   */
-  private buildSelectorMap(root: SimplifiedNode): DOMSelectorMap {
-    const selectorMap: DOMSelectorMap = {};
-
-    const traverse = (node: SimplifiedNode) => {
-      if (
-        node.interactiveIndex !== null &&
-        !node.ignoredByPaintOrder &&
-        !node.excludedByBoundingBox
-      ) {
-        selectorMap[node.interactiveIndex] = node.originalNode;
-      }
-
-      for (const child of node.children) {
-        traverse(child);
-      }
-    };
-
-    traverse(root);
-    return selectorMap;
-  }
-
+  
   /**
    * Calculate serialization statistics
    */
@@ -759,7 +782,7 @@ export class DOMTreeSerializer {
         // Add interactive marker if clickable
         if (node.interactiveIndex !== null && !node.excludedByBoundingBox) {
           const newPrefix = node.isNew ? "*" : "";
-          line += `${newPrefix}[${node.originalNode.nodeId}]`;
+          line += `${newPrefix}[${node.originalNode.backendNodeId || node.originalNode.nodeId}]`;
         }
 
         line += "<svg";
@@ -836,7 +859,7 @@ export class DOMTreeSerializer {
         // Clickable (and possibly scrollable)
         const newPrefix = node.isNew ? "*" : "";
         const scrollPrefix = shouldShowScroll ? "|SCROLL[" : "[";
-        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${node.originalNode.nodeId}]<${node.originalNode.tag}`;
+        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${node.originalNode.backendNodeId || node.originalNode.nodeId}]<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === "IFRAME") {
         line = `${depthStr}${shadowPrefix}|IFRAME|<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === "FRAME") {

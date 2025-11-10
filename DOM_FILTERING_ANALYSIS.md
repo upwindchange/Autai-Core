@@ -7,12 +7,14 @@ This document compares the current TypeScript DOM filtering pipeline implementat
 ## Current Pipeline vs Browser-use Pipeline
 
 ### My Current TypeScript Pipeline:
+
 1. **Stage 1**: Simplified node creation
 2. **Stage 2**: Paint order filtering
 3. **Stage 3**: Bounding box filtering
 4. **Stage 4**: Tree optimization
 
 ### Browser-use Python Pipeline:
+
 1. **Step 1**: Create simplified tree (with compound control detection)
 2. **Step 2**: Paint order filtering
 3. **Step 3**: Tree optimization
@@ -28,6 +30,7 @@ This document compares the current TypeScript DOM filtering pipeline implementat
 **Reference Implementation:** `browser_use/dom/serializer/serializer.py:147-330`
 
 **Examples from browser-use:**
+
 ```python
 # Range input → Virtual slider component
 elif input_type == 'range':
@@ -81,6 +84,7 @@ elif element_type == 'select':
 **Reference Implementation:** `browser_use/dom/serializer/serializer.py:866-898`
 
 **Browser-use example:**
+
 ```python
 # Build compound component attributes
 if node.original_node._compound_children:
@@ -113,9 +117,15 @@ if node.original_node._compound_children:
 ```
 
 **Resulting HTML:**
+
 ```html
-<input type="range" compound_components="(role=slider,name=Value,min=0,max=100,current=50)" />
-<select compound_components="(name=Dropdown Toggle,role=button),(name=Options,role=listbox,count=5,options=[USA,Canada,UK])" />
+<input
+  type="range"
+  compound_components="(role=slider,name=Value,min=0,max=100,current=50)"
+/>
+<select
+  compound_components="(name=Dropdown Toggle,role=button),(name=Options,role=listbox,count=5,options=[USA,Canada,UK])"
+/>
 ```
 
 ### 3. Enhanced Attribute String Building (MEDIUM IMPACT, LOW COMPLEXITY)
@@ -125,7 +135,9 @@ if node.original_node._compound_children:
 **Reference Implementation:** `browser_use/dom/serializer/serializer.py:983-1170`
 
 #### Format Hints for Date/Time Inputs
+
 **Browser-use implementation:**
+
 ```python
 # jQuery/Bootstrap datepicker detection
 elif input_type in {'text', ''}:
@@ -149,7 +161,9 @@ elif input_type in {'text', ''}:
 ```
 
 #### Duplicate Attribute Removal
+
 **Browser-use implementation:**
+
 ```python
 # Remove duplicate values
 ordered_keys = [key for key in include_attributes if key in attributes_to_include]
@@ -167,7 +181,9 @@ for key in ordered_keys:
 ```
 
 #### Current Value Extraction
+
 **Browser-use implementation:**
+
 ```python
 # Prioritize AX tree values over DOM attributes
 if node.tag_name and node.tag_name.lower() in ['input', 'textarea', 'select']:
@@ -187,35 +203,6 @@ if node.tag_name and node.tag_name.lower() in ['input', 'textarea', 'select']:
                     break
 ```
 
-### 4. Caching for Interactive Element Detection (MEDIUM IMPACT, LOW COMPLEXITY)
-
-**What's missing:** Browser-use maintains a cache of clickable element detection results.
-
-**Reference Implementation:** `browser_use/dom/serializer/serializer.py:414-430`
-
-**Browser-use implementation:**
-```python
-def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
-    """Cached version of clickable element detection to avoid redundant calls."""
-
-    if node.node_id not in self._clickable_cache:
-        import time
-
-        start_time = time.time()
-        result = ClickableElementDetector.is_interactive(node)
-        end_time = time.time()
-
-        if 'clickable_detection_time' not in self.timing_info:
-            self.timing_info['clickable_detection_time'] = 0
-        self.timing_info['clickable_detection_time'] += end_time - start_time
-
-        self._clickable_cache[node.node_id] = result
-
-    return self._clickable_cache[node.node_id]
-```
-
-**My Implementation:** Calls interactive detector for every element without caching.
-
 ### 5. Shadow DOM Handling Differences (MEDIUM IMPACT, MEDIUM COMPLEXITY)
 
 **What's missing:** Browser-use has explicit shadow root type detection and special serialization.
@@ -223,6 +210,7 @@ def _is_interactive_cached(self, node: EnhancedDOMTreeNode) -> bool:
 **Reference Implementation:** `browser_use/dom/serializer/serializer.py:902-910, 942-959`
 
 **Browser-use implementation:**
+
 ```python
 # Shadow host detection in serialization
 if node.is_shadow_host:
@@ -250,6 +238,7 @@ elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
 **Reference Implementation:** `browser_use/dom/serializer/serializer.py:607-619`
 
 **Browser-use implementation:**
+
 ```python
 # Check if scrollable container should be made interactive
 should_make_interactive = False
@@ -274,6 +263,7 @@ elif is_interactive_assign and (is_visible or is_file_input):
 **Reference Implementation:** `browser_use/dom/serializer/serializer.py:332-412`
 
 **Browser-use implementation:**
+
 ```python
 def _extract_select_options(self, select_node: EnhancedDOMTreeNode) -> dict[str, Any] | None:
     """Extract option information from a select element."""
@@ -330,17 +320,13 @@ def _extract_select_options(self, select_node: EnhancedDOMTreeNode) -> dict[str,
 
 ## Algorithmic Differences
 
-### 1. Pipeline Order Difference
-- **My approach:** Paint order → Bounding box → Tree optimization
-- **Browser-use:** Paint order → Tree optimization → Bounding box → Interactive assignment
-
-**Impact:** Tree optimization before bounding box filtering may be more efficient as there are fewer elements to process.
-
 ### 2. Interactive Assignment Strategy
+
 - **My approach:** During simplified tree creation, on-the-fly highlighting
 - **Browser-use:** Separate pass after all filtering, with visibility + interactivity requirements
 
 ### 3. Propagation Filtering Implementation
+
 - **My approach:** Marks elements as excluded but still processes children
 - **Browser-use:** More sophisticated bounds propagation with explicit exception rules
 
@@ -351,16 +337,19 @@ def _extract_select_options(self, select_node: EnhancedDOMTreeNode) -> dict[str,
 ### Phase 1: Quick Wins (Low Complexity, High Impact)
 
 1. **Enhanced Attribute String Building**
+
    - Add format hints for date/time inputs
    - Implement duplicate attribute removal
    - Prioritize AX tree values
    - **Files to modify:** `DOMTreeSerializer.ts` (attribute building section)
 
 2. **Interactive Element Detection Caching**
+
    - Add cache for clickable detection results
    - **Files to modify:** `DOMTreeSerializer.ts` (add cache property)
 
 3. **Scrollable Element Logic Enhancement**
+
    - Implement descendant check for scrollable elements
    - **Files to modify:** `DOMTreeSerializer.ts` (interactive assignment logic)
 
@@ -371,10 +360,12 @@ def _extract_select_options(self, select_node: EnhancedDOMTreeNode) -> dict[str,
 ### Phase 2: Medium Complexity Features
 
 5. **Complete Compound Control Detection**
+
    - Implement comprehensive virtualization system
    - **Files to modify:** `DOMTreeSerializer.ts` (add compound detection methods)
 
 6. **Enhanced Select Options Extraction**
+
    - Add recursive extraction and format detection
    - **Files to modify:** `DOMTreeSerializer.ts` (select options handling)
 
@@ -382,15 +373,10 @@ def _extract_select_options(self, select_node: EnhancedDOMTreeNode) -> dict[str,
    - Add open/closed detection and special prefixes
    - **Files to modify:** `DOMTreeSerializer.ts` (shadow DOM handling)
 
-### Phase 3: Pipeline Optimization
-
-8. **Pipeline Reordering**
-   - Consider tree optimization before bounding box filtering
-   - **Files to modify:** `DOMTreeSerializer.ts` (main serialization method)
-
 ## Reference Implementation Details
 
 ### Key Methods to Study:
+
 - `_add_compound_components()` - Compound control detection
 - `_build_attributes_string()` - Attribute processing
 - `_extract_select_options()` - Select options extraction
@@ -399,6 +385,7 @@ def _extract_select_options(self, select_node: EnhancedDOMTreeNode) -> dict[str,
 - `serialize_tree()` - Tree serialization with shadow DOM handling
 
 ### Configuration and Constants:
+
 ```python
 PROPAGATING_ELEMENTS = [
     {'tag': 'a', 'role': None},
