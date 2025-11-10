@@ -163,12 +163,33 @@ export class InteractiveElementDetector {
     );
   }
 
-  
   /**
    * Get the current device pixel ratio
    */
-  getDevicePixelRatio(): number {
-    return this.devicePixelRatio ?? 1; // Return 1 as fallback if still null
+  async getDevicePixelRatio(): Promise<number> {
+    if (this.devicePixelRatio === null) {
+      try {
+        const result = (await sendCDPCommand(
+          this.webContents,
+          "Runtime.evaluate",
+          {
+            expression: "window.devicePixelRatio || 1",
+          },
+          this.logger
+        )) as { result: { value: number } };
+        this.devicePixelRatio = result.result.value || 1;
+        this.logger.info(
+          `Device pixel ratio populated: ${this.devicePixelRatio}`
+        );
+      } catch (error) {
+        this.logger.warn(
+          "Failed to get device pixel ratio, using default value of 1:",
+          error
+        );
+        this.devicePixelRatio = 1;
+      }
+    }
+    return this.devicePixelRatio;
   }
 
   /**
@@ -334,36 +355,13 @@ export class InteractiveElementDetector {
    * Convert device pixels to CSS pixels for accurate sizing
    */
   private async deviceToCSSPixels(devicePixels: number): Promise<number> {
-    // Populate devicePixelRatio if null
-    if (this.devicePixelRatio === null) {
-      try {
-        const result = (await sendCDPCommand(
-          this.webContents,
-          "Runtime.evaluate",
-          {
-            expression: "window.devicePixelRatio || 1",
-          },
-          this.logger
-        )) as { result: { value: number } };
-        this.devicePixelRatio = result.result.value || 1;
-        this.logger.info(
-          `Device pixel ratio populated: ${this.devicePixelRatio}`
-        );
-      } catch (error) {
-        this.logger.warn(
-          "Failed to get device pixel ratio, using default value of 1:",
-          error
-        );
-        this.devicePixelRatio = 1;
-      }
-    }
-    return devicePixels / this.devicePixelRatio;
+    return devicePixels / (await this.getDevicePixelRatio());
   }
 
   /**
    * Get element size in CSS pixels
    */
-  private async getElementSize(
+  async getElementSize(
     node: EnhancedDOMTreeNode
   ): Promise<{ width: number; height: number } | null> {
     if (!node.snapshotNode?.bounds) {

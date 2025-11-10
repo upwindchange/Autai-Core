@@ -118,7 +118,6 @@ export class DOMTreeSerializer {
     this.config = {
       enablePaintOrderFiltering: true,
       enableBoundingBoxFiltering: true,
-      enableCompoundComponents: false,
       opacityThreshold: 0.8,
       containmentThreshold: 0.99,
       maxInteractiveElements: 1000,
@@ -130,30 +129,6 @@ export class DOMTreeSerializer {
   }
 
   // ==================== BOUNDING BOX METHODS ====================
-
-  /**
-   * Convert device pixels to CSS pixels for accurate sizing
-   */
-  private deviceToCSSPixels(devicePixels: number): number {
-    return devicePixels / this.interactiveDetector.getDevicePixelRatio();
-  }
-
-  /**
-   * Get element size in CSS pixels
-   */
-  private getElementSize(
-    node: EnhancedDOMTreeNode
-  ): { width: number; height: number } | null {
-    if (!node.snapshotNode?.bounds) {
-      return null;
-    }
-
-    const { width, height } = node.snapshotNode.bounds;
-    return {
-      width: this.deviceToCSSPixels(width),
-      height: this.deviceToCSSPixels(height),
-    };
-  }
 
   /**
    * Check if element is a propagating element that can contain child interactive elements
@@ -272,11 +247,11 @@ export class DOMTreeSerializer {
   /**
    * Process a single node for bounding box filtering
    */
-  private processBoundingBoxNode(node: SimplifiedNode): boolean {
+  private async processBoundingBoxNode(node: SimplifiedNode): Promise<boolean> {
     const enhancedNode = node.originalNode;
 
     // Skip if element is outside valid size range
-    if (!this.isWithinValidSizeRange(enhancedNode)) {
+    if (!(await this.isWithinValidSizeRange(enhancedNode))) {
       return false;
     }
 
@@ -300,8 +275,10 @@ export class DOMTreeSerializer {
   /**
    * Check if element is within valid size range
    */
-  private isWithinValidSizeRange(node: EnhancedDOMTreeNode): boolean {
-    const size = this.getElementSize(node);
+  private async isWithinValidSizeRange(
+    node: EnhancedDOMTreeNode
+  ): Promise<boolean> {
+    const size = await this.interactiveDetector.getElementSize(node);
     if (!size) {
       return false;
     }
@@ -1330,6 +1307,10 @@ export class DOMTreeSerializer {
     rootNode: SimplifiedNode
   ): Promise<void> {
     try {
+      if (!this.config.enablePaintOrderFiltering) {
+        this.logger.debug("Paint order filtering disabled");
+        return;
+      }
       // Phase 1: Collect all nodes with paint order information
       const nodesWithPaintOrder: SimplifiedNode[] = [];
 
@@ -1586,15 +1567,17 @@ export class DOMTreeSerializer {
       let sizeFilteredNodes = 0;
 
       // Mark excluded nodes for later processing
-      const markExcludedNodes = (node: SimplifiedNode): boolean => {
+      const markExcludedNodes = async (
+        node: SimplifiedNode
+      ): Promise<boolean> => {
         totalNodes++;
-        const shouldKeep = this.processBoundingBoxNode(node);
+        const shouldKeep = await this.processBoundingBoxNode(node);
         if (!shouldKeep) {
           excludedNodes++;
           node.excludedByBoundingBox = true;
 
           // Determine exclusion reason for statistics
-          if (!this.isWithinValidSizeRange(node.originalNode)) {
+          if (!(await this.isWithinValidSizeRange(node.originalNode))) {
             sizeFilteredNodes++;
             node.exclusionReason = "size_filtered";
           } else if (
@@ -1613,13 +1596,13 @@ export class DOMTreeSerializer {
 
         // Process children recursively
         for (const child of node.children) {
-          markExcludedNodes(child);
+          await markExcludedNodes(child);
         }
 
         return shouldKeep;
       };
 
-      markExcludedNodes(rootNode);
+      await markExcludedNodes(rootNode);
 
       const processingTime = Date.now() - startTime;
       this.logger.info(

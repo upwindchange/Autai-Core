@@ -155,7 +155,6 @@ export interface CompoundComponent {
 export interface SerializationConfig {
   enablePaintOrderFiltering: boolean;
   enableBoundingBoxFiltering: boolean;
-  enableCompoundComponents: boolean;
   opacityThreshold: number;
   containmentThreshold: number;
   maxInteractiveElements: number;
@@ -211,7 +210,7 @@ export interface SimplifiedNode {
   ignoredByPaintOrder: boolean;
   excludedByParent: boolean;
   excludedByBoundingBox?: boolean;
-  exclusionReason?: 'size_filtered' | 'contained' | string;
+  exclusionReason?: "size_filtered" | "contained" | string;
   isShadowHost: boolean;
   isCompoundComponent: boolean;
 
@@ -226,8 +225,7 @@ export interface SimplifiedNode {
   hasChildren: boolean;
   tagName: string;
   textContent: string;
-
-  }
+}
 
 export interface ScrollInfo {
   scrollWidth: number;
