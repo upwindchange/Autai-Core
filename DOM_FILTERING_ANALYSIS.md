@@ -128,81 +128,6 @@ if node.original_node._compound_children:
 />
 ```
 
-### 3. Enhanced Attribute String Building (MEDIUM IMPACT, LOW COMPLEXITY)
-
-**What's missing:** Browser-use has much more sophisticated attribute processing.
-
-**Reference Implementation:** `browser_use/dom/serializer/serializer.py:983-1170`
-
-#### Format Hints for Date/Time Inputs
-
-**Browser-use implementation:**
-
-```python
-# jQuery/Bootstrap datepicker detection
-elif input_type in {'text', ''}:
-    class_attr = node.attributes.get('class', '').lower()
-
-    # AngularJS UI Bootstrap datepicker
-    if 'uib-datepicker-popup' in node.attributes:
-        date_format = node.attributes.get('uib-datepicker-popup', '')
-        attributes_to_include['expected_format'] = date_format
-        attributes_to_include['format'] = date_format
-
-    # jQuery/Bootstrap datepickers by class names
-    elif any(indicator in class_attr for indicator in ['datepicker', 'datetimepicker', 'daterangepicker']):
-        date_format = node.attributes.get('data-date-format', '')
-        if date_format:
-            attributes_to_include['placeholder'] = date_format
-            attributes_to_include['format'] = date_format
-        else:
-            attributes_to_include['placeholder'] = 'mm/dd/yyyy'
-            attributes_to_include['format'] = 'mm/dd/yyyy'
-```
-
-#### Duplicate Attribute Removal
-
-**Browser-use implementation:**
-
-```python
-# Remove duplicate values
-ordered_keys = [key for key in include_attributes if key in attributes_to_include]
-
-# Attributes that should never be removed as duplicates
-protected_attrs = {'format', 'expected_format', 'placeholder', 'value', 'aria-label', 'title'}
-
-for key in ordered_keys:
-    value = attributes_to_include[key]
-    if len(value) > 5:
-        if value in seen_values and key not in protected_attrs:
-            keys_to_remove.add(key)
-        else:
-            seen_values[value] = key
-```
-
-#### Current Value Extraction
-
-**Browser-use implementation:**
-
-```python
-# Prioritize AX tree values over DOM attributes
-if node.tag_name and node.tag_name.lower() in ['input', 'textarea', 'select']:
-    if node.ax_node and node.ax_node.properties:
-        for prop in node.ax_node.properties:
-            # Try valuetext first (human-readable display value)
-            if prop.name == 'valuetext' and prop.value:
-                value_str = str(prop.value).strip()
-                if value_str:
-                    attributes_to_include['value'] = value_str
-                    break
-            # Also try 'value' property directly
-            elif prop.name == 'value' and prop.value:
-                value_str = str(prop.value).strip()
-                if value_str:
-                    attributes_to_include['value'] = value_str
-                    break
-```
-
 ### 5. Shadow DOM Handling Differences (MEDIUM IMPACT, MEDIUM COMPLEXITY)
 
 **What's missing:** Browser-use has explicit shadow root type detection and special serialization.
@@ -231,30 +156,6 @@ elif node.original_node.node_type == NodeType.DOCUMENT_FRAGMENT_NODE:
         formatted_text.append(f'{depth_str}Open Shadow')
 ```
 
-### 6. Scrollable Element Interactivity Logic (MEDIUM IMPACT, LOW COMPLEXITY)
-
-**What's missing:** Scrollable containers are only made interactive if they have NO interactive descendants.
-
-**Reference Implementation:** `browser_use/dom/serializer/serializer.py:607-619`
-
-**Browser-use implementation:**
-
-```python
-# Check if scrollable container should be made interactive
-should_make_interactive = False
-if is_scrollable:
-    # For scrollable elements, check if they have interactive children
-    has_interactive_desc = self._has_interactive_descendants(node)
-
-    # Only make scrollable container interactive if it has NO interactive descendants
-    if not has_interactive_desc:
-        should_make_interactive = True
-elif is_interactive_assign and (is_visible or is_file_input):
-    # Non-scrollable interactive elements: make interactive if visible
-    should_make_interactive = True
-```
-
-**My Implementation:** Makes scrollable elements interactive regardless of their children.
 
 ### 7. Enhanced Select Options Extraction (MEDIUM IMPACT, MEDIUM COMPLEXITY)
 

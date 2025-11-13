@@ -276,7 +276,25 @@ export class DOMTreeSerializer {
     // Check if interactive using the dedicated detector with caching
     if (simplified.shouldDisplay) {
       const isInteractive = await this.isInteractiveCached(node);
-      if (isInteractive) {
+      const isScrollable = node.isActuallyScrollable || node.isScrollable;
+
+      let shouldMakeInteractive = false;
+
+      if (isScrollable) {
+        // For scrollable elements, check if they have interactive descendants
+        const hasInteractiveDesc = await this._hasInteractiveDescendants(node);
+        this.logger.debug(`Scrollable element ${node.tag} (backendNodeId: ${node.backendNodeId}) - has interactive descendants: ${hasInteractiveDesc}`);
+
+        // Only make scrollable container interactive if it has NO interactive descendants
+        if (!hasInteractiveDesc) {
+          shouldMakeInteractive = true;
+        }
+      } else if (isInteractive) {
+        // Non-scrollable interactive elements: make interactive
+        shouldMakeInteractive = true;
+      }
+
+      if (shouldMakeInteractive) {
         simplified.interactiveIndex = this.interactiveCounter++;
         simplified.interactiveElement = true;
 
@@ -328,6 +346,41 @@ export class DOMTreeSerializer {
     return !Object.values(this._previousCachedSelectorMap).some(
       (prevNode) => prevNode.backendNodeId === node.backendNodeId
     );
+  }
+
+  /**
+   * Check if scrollable element has interactive descendants
+   * Following browser-use pattern: only make scrollable containers interactive
+   * if they have NO interactive descendants
+   */
+  private async _hasInteractiveDescendants(
+    node: EnhancedDOMTreeNode
+  ): Promise<boolean> {
+    // Check actual children
+    if (node.actualChildren) {
+      for (const child of node.actualChildren) {
+        if (await this.interactiveDetector.isInteractive(child)) {
+          this.logger.debug(`Found interactive descendant: ${child.tag} (backendNodeId: ${child.backendNodeId})`);
+          return true;
+        }
+
+        // Recursively check grandchildren
+        if (await this._hasInteractiveDescendants(child)) {
+          return true;
+        }
+      }
+    }
+
+    // Check shadow root children
+    if (node.shadowRoots) {
+      for (const shadowRoot of node.shadowRoots) {
+        if (await this._hasInteractiveDescendants(shadowRoot)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   
@@ -442,7 +495,14 @@ export class DOMTreeSerializer {
       if (["text", ""].includes(inputType)) {
         const classAttr = (node.attributes["class"] || "").toLowerCase();
 
-        if (
+        // AngularJS UI Bootstrap datepicker
+        if (node.attributes["uib-datepicker-popup"]) {
+          const angularFormat = node.attributes["uib-datepicker-popup"];
+          attributesToInclude["expected_format"] = angularFormat;
+          attributesToInclude["format"] = angularFormat;
+        }
+        // jQuery/Bootstrap datepickers by class names
+        else if (
           classAttr.includes("datepicker") ||
           classAttr.includes("datetimepicker") ||
           classAttr.includes("daterangepicker") ||
