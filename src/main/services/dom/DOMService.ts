@@ -17,6 +17,7 @@ import type {
   EnhancedSnapshotNode,
   BoundsObject,
 } from "@shared/dom";
+import type { ClickOptions, ClickResult } from "@shared/dom/interaction";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 import {
   sendCDPCommand,
@@ -24,16 +25,19 @@ import {
   detachDebugger,
   isDebuggerAttached,
 } from "./utils/DOMUtils";
+import { ElementInteractionService } from "./ElementInteractionService";
 
 export class DOMService implements IDOMService {
   private webContents: WebContents;
   private logger = log.scope("DOMService");
   private serializer: DOMTreeSerializer;
+  private elementInteraction: ElementInteractionService;
   private previousState?: SerializedDOMState;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
     this.serializer = new DOMTreeSerializer(webContents);
+    this.elementInteraction = new ElementInteractionService(webContents);
     this.logger.info("DOMService initialized - direct CDP integration");
   }
 
@@ -55,7 +59,9 @@ export class DOMService implements IDOMService {
 
       const trees = await this.getAllTrees();
 
-      this.logger.debug(`CDP Snapshot processed: ${trees.snapshot ? 'available' : 'missing'}`);
+      this.logger.debug(
+        `CDP Snapshot processed: ${trees.snapshot ? "available" : "missing"}`
+      );
 
       this.logger.debug("Building enhanced DOM tree from CDP data");
       const enhancedTree = this.buildEnhancedDOMTree(trees);
@@ -153,9 +159,7 @@ export class DOMService implements IDOMService {
       } entries`
     );
     this.logger.debug(
-      `DOM Service: snapshot has ${
-        snapshot?.documents?.length || 0
-      } documents`
+      `DOM Service: snapshot has ${snapshot?.documents?.length || 0} documents`
     );
     const nodeLookup: Record<number, EnhancedDOMTreeNode> = {};
 
@@ -188,18 +192,25 @@ export class DOMService implements IDOMService {
     const doc = snapshot.documents[0];
     const { layout, nodes } = doc;
 
-    if (!layout || !nodes || !layout.nodeIndex || !layout.bounds || !nodes.backendNodeId) {
+    if (
+      !layout ||
+      !nodes ||
+      !layout.nodeIndex ||
+      !layout.bounds ||
+      !nodes.backendNodeId
+    ) {
       return lookup;
     }
 
-  
     // Build lookup from layout.nodeIndex correlating with nodes.backendNodeId
     for (let i = 0; i < layout.nodeIndex.length; i++) {
       const nodeArrayIndex = layout.nodeIndex[i];
 
       // Ensure the nodeArrayIndex is valid
       if (nodeArrayIndex >= nodes.backendNodeId.length) {
-        this.logger.warn(`Skipping layout index ${i}: nodeArrayIndex ${nodeArrayIndex} exceeds nodes.backendNodeId length ${nodes.backendNodeId.length}`);
+        this.logger.warn(
+          `Skipping layout index ${i}: nodeArrayIndex ${nodeArrayIndex} exceeds nodes.backendNodeId length ${nodes.backendNodeId.length}`
+        );
         continue;
       }
 
@@ -222,25 +233,33 @@ export class DOMService implements IDOMService {
               x: boundsArray[0],
               y: boundsArray[1],
               width: boundsArray[2],
-              height: boundsArray[3]
+              height: boundsArray[3],
             };
           } else {
             // Invalid bounds array, skip
-            this.logger.warn(`Skipping layout index ${i}: bounds array has insufficient length ${boundsArray.length}`);
+            this.logger.warn(
+              `Skipping layout index ${i}: bounds array has insufficient length ${boundsArray.length}`
+            );
             continue;
           }
-        } else if (typeof layout.bounds[i] === 'object' && layout.bounds[i] !== null) {
+        } else if (
+          typeof layout.bounds[i] === "object" &&
+          layout.bounds[i] !== null
+        ) {
           // If bounds[i] is an object with x,y,width,height properties
           const boundsObj = layout.bounds[i] as unknown as BoundsObject;
           bounds = {
             x: boundsObj.x || 0,
             y: boundsObj.y || 0,
             width: boundsObj.width || 0,
-            height: boundsObj.height || 0
+            height: boundsObj.height || 0,
           };
         } else {
           // Invalid bounds structure, skip
-          this.logger.warn(`Skipping layout index ${i}: bounds has invalid type ${typeof layout.bounds[i]}`);
+          this.logger.warn(
+            `Skipping layout index ${i}: bounds has invalid type ${typeof layout
+              .bounds[i]}`
+          );
           continue;
         }
 
@@ -254,11 +273,12 @@ export class DOMService implements IDOMService {
           isClickable,
         };
       } else {
-        this.logger.warn(`Skipping layout index ${i}: bounds index ${i} exceeds bounds.length ${layout.bounds.length}`);
+        this.logger.warn(
+          `Skipping layout index ${i}: bounds index ${i} exceeds bounds.length ${layout.bounds.length}`
+        );
       }
     }
 
-  
     return lookup;
   }
 
@@ -403,6 +423,102 @@ export class DOMService implements IDOMService {
       count += this.countNodes(child);
     }
     return count;
+  }
+
+  /**
+   * Click an element using its backendNodeId with multi-fallback coordinate resolution
+   */
+  async clickElement(
+    backendNodeId: number,
+    options?: ClickOptions
+  ): Promise<ClickResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug(
+        `Clicking element with backendNodeId: ${backendNodeId}`,
+        {
+          backendNodeId,
+          options: options || {},
+        }
+      );
+
+      const result = await this.elementInteraction.clickElement(
+        backendNodeId,
+        options
+      );
+
+      if (result.success) {
+        this.logger.info(`Element clicked successfully`, {
+          backendNodeId,
+          coordinates: result.coordinates,
+          method: result.method,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to click element`, {
+          backendNodeId,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Click operation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Get element bounding box using backendNodeId
+   */
+  async getElementBoundingBox(
+    backendNodeId: number
+  ): Promise<{ x: number; y: number; width: number; height: number } | null> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug(
+        `Getting bounding box for backendNodeId: ${backendNodeId}`
+      );
+
+      const result = await this.elementInteraction.getBoundingBox(
+        backendNodeId
+      );
+
+      if (result) {
+        this.logger.debug(
+          `Bounding box retrieved for backendNodeId ${backendNodeId}:`,
+          result
+        );
+      } else {
+        this.logger.warn(
+          `Could not retrieve bounding box for backendNodeId ${backendNodeId}`
+        );
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Failed to get bounding box for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+      return null;
+    }
   }
 
   /**
