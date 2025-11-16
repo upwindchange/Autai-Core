@@ -153,7 +153,6 @@ const ICON_CLASS_PATTERNS = [
  *
  * Provides comprehensive detection of interactive DOM elements using a tiered approach.
  * Matches browser-use detection patterns with existing Autai-Core functionality.
- * Includes highlighting capabilities using CDP commands.
  */
 export class InteractiveElementDetector {
   private webContents: WebContents;
@@ -161,9 +160,7 @@ export class InteractiveElementDetector {
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
-    this.logger.info(
-      "InteractiveElementDetector initialized with highlighting support"
-    );
+    this.logger.info("InteractiveElementDetector initialized");
   }
 
   /**
@@ -211,59 +208,48 @@ export class InteractiveElementDetector {
       if (!this.checkNodeType(node)) return false;
       if (this.checkSkippedElements(node)) return false;
       if (await this.checkIframeSize(node)) {
-        await this.highlightElement(node, "tier1");
         return true; // Special case for iframes
       }
 
       // Tier 2: Specialized tag detection
       if (this.checkSpecializedTags(node)) {
-        await this.highlightElement(node, "tier2");
         return true;
       }
 
       // Tier 3: Search-related element detection
       if (this.checkSearchElements(node)) {
-        await this.highlightElement(node, "tier3");
         return true;
       }
 
       // Tier 4: Attribute-based detection
       if (this.checkEventHandlers(node)) {
-        await this.highlightElement(node, "tier4");
         return true;
       }
       if (this.checkARIAAttributes(node)) {
-        await this.highlightElement(node, "tier4");
         return true;
       }
       if (this.checkInputAttributes(node)) {
-        await this.highlightElement(node, "tier4");
         return true;
       }
 
       // Tier 5: Accessibility tree analysis
       if (this.checkAccessibilityProperties(node)) {
-        await this.highlightElement(node, "tier5");
         return true;
       }
       if (this.checkAccessibilityRoles(node)) {
-        await this.highlightElement(node, "tier5");
         return true;
       }
 
       // Tier 6: Visual/structural indicators
       if (await this.checkIconElements(node)) {
-        await this.highlightElement(node, "tier6");
         return true;
       }
       if (this.checkCursorStyle(node)) {
-        await this.highlightElement(node, "tier6");
         return true;
       }
 
       // Tier 7: Compound control detection
       if (await this.checkCompoundControls(node)) {
-        await this.highlightElement(node, "tier7");
         return true;
       }
 
@@ -1279,70 +1265,4 @@ export class InteractiveElementDetector {
     return "Unknown compound control";
   }
 
-  /**
-   * Lightweight development highlighting using only DOM.setAttributeValue
-   */
-  private async highlightElement(
-    node: EnhancedDOMTreeNode,
-    detectionTier: string
-  ): Promise<void> {
-    if (!node.nodeId) return;
-
-    // Color scheme for different detection tiers
-    const tierColors: Record<string, string> = {
-      tier1: "#FF6B6B", // Red - Basic node type filtering
-      tier2: "#FFB366", // Orange - Specialized tag detection
-      tier3: "#45B7D1", // Blue - Search detection
-      tier4: "#96CEB4", // Green - Event handler detection
-      tier5: "#DDA0DD", // Purple - Accessibility property analysis
-      tier6: "#FF8C42", // Orange - Visual indicators (cursor style)
-      tier7: "#9B59B6", // Purple - Compound control detection
-      occluded: "#808080", // Gray - Paint order occlusion filtering
-      default: "#FF6B6B", // Default red for unknown tiers
-    };
-
-    // Use compound-specific colors based on element type
-    const color = tierColors[detectionTier];
-
-    try {
-      // Enable DOM agent if not already enabled
-      await sendCDPCommand(
-        this.webContents,
-        "DOM.enable",
-        undefined,
-        this.logger
-      );
-
-      // Lightweight approach: Simple inline styles for development debugging
-      // No position changes, no class modifications, no z-index interference
-      await sendCDPCommand(
-        this.webContents,
-        "DOM.setAttributeValue",
-        {
-          nodeId: node.nodeId,
-          name: "style",
-          value: `
-            outline: 3px solid ${color} !important;
-            outline-offset: 2px !important;
-            background-color: ${color}20 !important;
-          `,
-        },
-        this.logger
-      );
-
-      // Simple data attribute for identification (no class pollution)
-      await sendCDPCommand(
-        this.webContents,
-        "DOM.setAttributeValue",
-        {
-          nodeId: node.nodeId,
-          name: "data-autai-tier",
-          value: detectionTier,
-        },
-        this.logger
-      );
-    } catch (error) {
-      this.logger.warn(`Failed to highlight element ${node.nodeId}:`, error);
-    }
   }
-}

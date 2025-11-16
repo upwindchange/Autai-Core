@@ -162,6 +162,7 @@ export interface SerializationConfig {
   opacityThreshold: number;
   containmentThreshold: number;
   maxInteractiveElements: number;
+  highlightInteractiveElements?: boolean;
 
   // Bounding box specific configuration
   boundingBoxConfig?: {
@@ -180,6 +181,7 @@ export interface SerializationTiming {
   paintOrderFiltering: number;
   optimizeTreeStructure: number;
   boundingBoxFiltering: number;
+  highlighting: number;
   assignInteractiveIndices: number;
   markNewElements: number;
 }

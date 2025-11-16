@@ -23,6 +23,7 @@ import { InteractiveElementDetector } from "./InteractiveElementDetector";
 import { applyPaintOrderFiltering } from "./PaintOrderFiltering";
 import { applyBoundingBoxFiltering } from "./boundingBoxFiltering";
 import { applyTreeOptimization, hasSemanticMeaning } from "./TreeOptimization";
+import { sendCDPCommand } from "@/services/dom/utils/DOMUtils";
 
 // Note: Icon detection attributes and patterns (ICON_ATTRIBUTES, ICON_CLASS_PATTERNS)
 // are available if needed for icon-based filtering logic
@@ -95,6 +96,7 @@ export class DOMTreeSerializer {
       opacityThreshold: 0.8,
       containmentThreshold: 0.99,
       maxInteractiveElements: 1000,
+      highlightInteractiveElements: true,
       ...config,
     };
 
@@ -121,6 +123,7 @@ export class DOMTreeSerializer {
       paintOrderFiltering: 0,
       optimizeTreeStructure: 0,
       boundingBoxFiltering: 0,
+      highlighting: 0,
       assignInteractiveIndices: 0,
       markNewElements: 0,
     };
@@ -170,6 +173,13 @@ export class DOMTreeSerializer {
       this.webContents
     );
     timings.boundingBoxFiltering = Date.now() - boundingBoxStart;
+
+    // Apply highlighting stage
+    const highlightingStart = Date.now();
+    if (this.config.highlightInteractiveElements) {
+      await this.highlightInteractiveNodes(simplifiedRoot);
+    }
+    timings.highlighting = Date.now() - highlightingStart;
 
     // Log LLM representation for debugging
     try {
@@ -310,6 +320,75 @@ export class DOMTreeSerializer {
     simplified.isNew = this.isNewElement(node);
 
     return simplified;
+  }
+
+  /**
+   * Highlight all interactive nodes that passed filtering stages
+   */
+  private async highlightInteractiveNodes(root: SimplifiedNode): Promise<void> {
+    try {
+      // Enable DOM agent if not already enabled
+      await sendCDPCommand(
+        this.webContents,
+        "DOM.enable",
+        undefined,
+        this.logger
+      );
+
+      // Traverse tree and highlight interactive nodes
+      await this.traverseAndHighlight(root);
+    } catch (error) {
+      this.logger.warn("Failed to highlight interactive nodes:", error);
+    }
+  }
+
+  /**
+   * Traverse simplified tree and highlight interactive nodes
+   */
+  private async traverseAndHighlight(node: SimplifiedNode): Promise<void> {
+    // Highlight current node if it's interactive and passed filtering
+    if (
+      node.interactiveIndex !== null &&
+      !node.ignoredByPaintOrder &&
+      !node.excludedByBoundingBox &&
+      node.originalNode.nodeId
+    ) {
+      try {
+        // Apply simplified highlighting with single color
+        await sendCDPCommand(
+          this.webContents,
+          "DOM.setAttributeValue",
+          {
+            nodeId: node.originalNode.nodeId,
+            name: "style",
+            value: "outline: 3px solid #FF6B6B !important; outline-offset: 2px !important;",
+          },
+          this.logger
+        );
+
+        // Add simple data attribute for identification
+        await sendCDPCommand(
+          this.webContents,
+          "DOM.setAttributeValue",
+          {
+            nodeId: node.originalNode.nodeId,
+            name: "data-autai-interactive",
+            value: "true",
+          },
+          this.logger
+        );
+      } catch (error) {
+        this.logger.debug(
+          `Failed to highlight node ${node.originalNode.nodeId}:`,
+          error
+        );
+      }
+    }
+
+    // Recursively process children
+    for (const child of node.children) {
+      await this.traverseAndHighlight(child);
+    }
   }
 
   /**
