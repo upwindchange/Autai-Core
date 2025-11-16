@@ -273,17 +273,16 @@ export async function getDevicePixelRatio(
   logger?: LogFunctions
 ): Promise<number> {
   try {
-    const result = await sendCDPCommand(
+    const result = (await sendCDPCommand(
       webContents,
       "Runtime.evaluate",
       {
         expression: "window.devicePixelRatio || 1",
       },
       logger
-    ) as { result: { value: number } };
+    )) as { result: { value: number } };
 
     const ratio = result.result.value || 1;
-    logger?.info(`Device pixel ratio: ${ratio}`);
     return ratio;
   } catch (error) {
     logger?.error("Failed to get device pixel ratio:", error);

@@ -319,8 +319,8 @@ export class DOMTreeSerializer {
     node: EnhancedDOMTreeNode
   ): Promise<boolean> {
     if (!node.backendNodeId) {
-      // Fallback to direct detection if no backendNodeId
-      return this.interactiveDetector.isInteractive(node);
+      // Skip elements without backendNodeId - they won't be clickable anyway
+      return false;
     }
 
     if (this._clickableCache.has(node.backendNodeId)) {
@@ -330,9 +330,6 @@ export class DOMTreeSerializer {
       return this._clickableCache.get(node.backendNodeId)!;
     }
 
-    this.logger.debug(
-      `Cache MISS for interactive detection: backendNodeId=${node.backendNodeId}`
-    );
     const isInteractive = await this.interactiveDetector.isInteractive(node);
     this._clickableCache.set(node.backendNodeId, isInteractive);
 
@@ -846,11 +843,13 @@ export class DOMTreeSerializer {
         let line = `${depthStr}${shadowPrefix}`;
 
         // Add interactive marker if clickable
-        if (node.interactiveIndex !== null && !node.excludedByBoundingBox) {
+        if (
+          node.interactiveIndex !== null &&
+          !node.excludedByBoundingBox &&
+          node.originalNode.backendNodeId
+        ) {
           const newPrefix = node.isNew ? "*" : "";
-          line += `${newPrefix}[${
-            node.originalNode.backendNodeId || node.originalNode.nodeId
-          }]`;
+          line += `${newPrefix}[${node.originalNode.backendNodeId}]`;
         }
 
         line += "<svg";
@@ -922,14 +921,13 @@ export class DOMTreeSerializer {
         line = `${depthStr}${shadowPrefix}|SCROLL|<${node.originalNode.tag}`;
       } else if (
         node.interactiveIndex !== null &&
-        !node.excludedByBoundingBox
+        !node.excludedByBoundingBox &&
+        node.originalNode.backendNodeId
       ) {
         // Clickable (and possibly scrollable)
         const newPrefix = node.isNew ? "*" : "";
         const scrollPrefix = shouldShowScroll ? "|SCROLL[" : "[";
-        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${
-          node.originalNode.backendNodeId || node.originalNode.nodeId
-        }]<${node.originalNode.tag}`;
+        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${node.originalNode.backendNodeId}]<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === "IFRAME") {
         line = `${depthStr}${shadowPrefix}|IFRAME|<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === "FRAME") {
