@@ -10,7 +10,11 @@ import type { EnhancedDOMTreeNode } from "@shared/dom";
 import { NodeType } from "@shared/dom";
 import type { WebContents } from "electron";
 import log from "electron-log/main";
-import { sendCDPCommand, isElementVisible } from "../utils/DOMUtils";
+import {
+  sendCDPCommand,
+  isElementVisible,
+  getElementSize,
+} from "@/services/dom/utils/DOMUtils";
 
 // Enhanced interactive element tags (ported from DOMTreeSerializer)
 // Note: 'label' removed - labels with "for" attribute can destroy the real clickable element on apartments.com
@@ -154,42 +158,12 @@ const ICON_CLASS_PATTERNS = [
 export class InteractiveElementDetector {
   private webContents: WebContents;
   private logger = log.scope("InteractiveElementDetector");
-  private devicePixelRatio: number | null = null; // Will be populated lazily when needed
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
     this.logger.info(
       "InteractiveElementDetector initialized with highlighting support"
     );
-  }
-
-  /**
-   * Get the current device pixel ratio
-   */
-  async getDevicePixelRatio(): Promise<number> {
-    if (this.devicePixelRatio === null) {
-      try {
-        const result = (await sendCDPCommand(
-          this.webContents,
-          "Runtime.evaluate",
-          {
-            expression: "window.devicePixelRatio || 1",
-          },
-          this.logger
-        )) as { result: { value: number } };
-        this.devicePixelRatio = result.result.value || 1;
-        this.logger.info(
-          `Device pixel ratio populated: ${this.devicePixelRatio}`
-        );
-      } catch (error) {
-        this.logger.warn(
-          "Failed to get device pixel ratio, using default value of 1:",
-          error
-        );
-        this.devicePixelRatio = 1;
-      }
-    }
-    return this.devicePixelRatio;
   }
 
   /**
@@ -332,7 +306,7 @@ export class InteractiveElementDetector {
       return false;
     }
 
-    const size = await this.getElementSize(node);
+    const size = await getElementSize(node, this.webContents, this.logger);
     if (!size) {
       this.logger.warn(`Could not get size for iframe ${node.nodeId}`);
       return false;
@@ -349,30 +323,6 @@ export class InteractiveElementDetector {
     }
 
     return isLargeEnough;
-  }
-
-  /**
-   * Convert device pixels to CSS pixels for accurate sizing
-   */
-  private async deviceToCSSPixels(devicePixels: number): Promise<number> {
-    return devicePixels / (await this.getDevicePixelRatio());
-  }
-
-  /**
-   * Get element size in CSS pixels
-   */
-  async getElementSize(
-    node: EnhancedDOMTreeNode
-  ): Promise<{ width: number; height: number } | null> {
-    if (!node.snapshotNode?.bounds) {
-      return null;
-    }
-
-    const { width, height } = node.snapshotNode.bounds;
-    return {
-      width: await this.deviceToCSSPixels(width),
-      height: await this.deviceToCSSPixels(height),
-    };
   }
 
   // Tier 3: Search Element Detection
@@ -635,7 +585,7 @@ export class InteractiveElementDetector {
    */
   private async checkIconElements(node: EnhancedDOMTreeNode): Promise<boolean> {
     // First check if element size is within icon range
-    const size = await this.getElementSize(node);
+    const size = await getElementSize(node, this.webContents, this.logger);
     if (!size) {
       return false;
     }

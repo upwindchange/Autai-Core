@@ -2,7 +2,7 @@
  * DOM utilities for layout and visibility calculations
  */
 
-import type { EnhancedSnapshotNode } from "@shared/dom";
+import type { EnhancedSnapshotNode, EnhancedDOMTreeNode } from "@shared/dom";
 import type { Protocol as CDP } from "devtools-protocol";
 import type { WebContents } from "electron";
 import type { LogFunctions } from "electron-log/src";
@@ -261,4 +261,62 @@ export async function detachDebugger(
  */
 export function isDebuggerAttached(webContents: WebContents): boolean {
   return webContents.debugger.isAttached();
+}
+
+// Element Size Utilities
+
+/**
+ * Get the current device pixel ratio
+ */
+export async function getDevicePixelRatio(
+  webContents: WebContents,
+  logger?: LogFunctions
+): Promise<number> {
+  try {
+    const result = await sendCDPCommand(
+      webContents,
+      "Runtime.evaluate",
+      {
+        expression: "window.devicePixelRatio || 1",
+      },
+      logger
+    ) as { result: { value: number } };
+
+    const ratio = result.result.value || 1;
+    logger?.info(`Device pixel ratio: ${ratio}`);
+    return ratio;
+  } catch (error) {
+    logger?.error("Failed to get device pixel ratio:", error);
+    return 1; // Default fallback
+  }
+}
+
+/**
+ * Convert device pixels to CSS pixels for accurate sizing
+ */
+export async function deviceToCSSPixels(
+  devicePixels: number,
+  webContents: WebContents,
+  logger?: LogFunctions
+): Promise<number> {
+  return devicePixels / (await getDevicePixelRatio(webContents, logger));
+}
+
+/**
+ * Get element size in CSS pixels
+ */
+export async function getElementSize(
+  node: EnhancedDOMTreeNode,
+  webContents: WebContents,
+  logger?: LogFunctions
+): Promise<{ width: number; height: number } | null> {
+  if (!node.snapshotNode?.bounds) {
+    return null;
+  }
+
+  const { width, height } = node.snapshotNode.bounds;
+  return {
+    width: await deviceToCSSPixels(width, webContents, logger),
+    height: await deviceToCSSPixels(height, webContents, logger),
+  };
 }

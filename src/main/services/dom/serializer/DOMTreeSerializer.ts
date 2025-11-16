@@ -76,6 +76,7 @@ export class DOMTreeSerializer {
   private config: SerializationConfig;
   private interactiveCounter = 1;
   private interactiveDetector: InteractiveElementDetector;
+  private webContents: WebContents;
   private logger = log.scope("DOMTreeSerializer");
 
   // Caching properties for stable node identification
@@ -84,9 +85,10 @@ export class DOMTreeSerializer {
   private _clickableCache: Map<number, boolean> = new Map();
 
   constructor(
-    _webContents: WebContents,
+    webContents: WebContents,
     config: Partial<SerializationConfig> = {}
   ) {
+    this.webContents = webContents;
     this.config = {
       enablePaintOrderFiltering: true,
       enableBoundingBoxFiltering: true,
@@ -97,7 +99,7 @@ export class DOMTreeSerializer {
     };
 
     // Initialize the interactive element detector
-    this.interactiveDetector = new InteractiveElementDetector(_webContents);
+    this.interactiveDetector = new InteractiveElementDetector(webContents);
   }
 
   /**
@@ -134,15 +136,15 @@ export class DOMTreeSerializer {
     // Log caching information
     this.logger.debug("DOM Tree Serialization - Caching Info", {
       hasPreviousState: !!previousState,
-      previousSelectorMapSize: this._previousCachedSelectorMap ? Object.keys(this._previousCachedSelectorMap).length : 0,
-      cacheReset: true
+      previousSelectorMapSize: this._previousCachedSelectorMap
+        ? Object.keys(this._previousCachedSelectorMap).length
+        : 0,
+      cacheReset: true,
     });
 
     // Single-pass serialization with on-the-fly highlighting
     const createSimplifiedTreeStart = Date.now();
-    const simplifiedRoot = await this.createSimplifiedNode(
-      rootNode
-    );
+    const simplifiedRoot = await this.createSimplifiedNode(rootNode);
     timings.createSimplifiedTree = Date.now() - createSimplifiedTreeStart;
 
     if (!simplifiedRoot) {
@@ -165,7 +167,7 @@ export class DOMTreeSerializer {
     await applyBoundingBoxFiltering(
       simplifiedRoot,
       this.config,
-      this.interactiveDetector
+      this.webContents
     );
     timings.boundingBoxFiltering = Date.now() - boundingBoxStart;
 
@@ -188,9 +190,10 @@ export class DOMTreeSerializer {
       selectorMapSize: Object.keys(this._selectorMap).length,
       clickableCacheSize: this._clickableCache.size,
       totalTime: timings.total,
-      cacheEfficiency: this._clickableCache.size > 0 ?
-        `Cache contains ${this._clickableCache.size} cached interactive detections` :
-        'No cache hits in this run'
+      cacheEfficiency:
+        this._clickableCache.size > 0
+          ? `Cache contains ${this._clickableCache.size} cached interactive detections`
+          : "No cache hits in this run",
     });
 
     return {
@@ -252,9 +255,7 @@ export class DOMTreeSerializer {
     // Process children
     if (node.actualChildren) {
       for (const child of node.actualChildren) {
-        const simplifiedChild = await this.createSimplifiedNode(
-          child
-        );
+        const simplifiedChild = await this.createSimplifiedNode(child);
         if (simplifiedChild) {
           simplified.children.push(simplifiedChild);
         }
@@ -264,9 +265,7 @@ export class DOMTreeSerializer {
     // Process shadow roots
     if (node.shadowRoots) {
       for (const shadowRoot of node.shadowRoots) {
-        const simplifiedShadow = await this.createSimplifiedNode(
-          shadowRoot
-        );
+        const simplifiedShadow = await this.createSimplifiedNode(shadowRoot);
         if (simplifiedShadow) {
           simplified.children.push(simplifiedShadow);
         }
@@ -283,7 +282,9 @@ export class DOMTreeSerializer {
       if (isScrollable) {
         // For scrollable elements, check if they have interactive descendants
         const hasInteractiveDesc = await this._hasInteractiveDescendants(node);
-        this.logger.debug(`Scrollable element ${node.tag} (backendNodeId: ${node.backendNodeId}) - has interactive descendants: ${hasInteractiveDesc}`);
+        this.logger.debug(
+          `Scrollable element ${node.tag} (backendNodeId: ${node.backendNodeId}) - has interactive descendants: ${hasInteractiveDesc}`
+        );
 
         // Only make scrollable container interactive if it has NO interactive descendants
         if (!hasInteractiveDesc) {
@@ -314,18 +315,24 @@ export class DOMTreeSerializer {
   /**
    * Cached version of interactive element detection
    */
-  private async isInteractiveCached(node: EnhancedDOMTreeNode): Promise<boolean> {
+  private async isInteractiveCached(
+    node: EnhancedDOMTreeNode
+  ): Promise<boolean> {
     if (!node.backendNodeId) {
       // Fallback to direct detection if no backendNodeId
       return this.interactiveDetector.isInteractive(node);
     }
 
     if (this._clickableCache.has(node.backendNodeId)) {
-      this.logger.debug(`Cache HIT for interactive detection: backendNodeId=${node.backendNodeId}`);
+      this.logger.debug(
+        `Cache HIT for interactive detection: backendNodeId=${node.backendNodeId}`
+      );
       return this._clickableCache.get(node.backendNodeId)!;
     }
 
-    this.logger.debug(`Cache MISS for interactive detection: backendNodeId=${node.backendNodeId}`);
+    this.logger.debug(
+      `Cache MISS for interactive detection: backendNodeId=${node.backendNodeId}`
+    );
     const isInteractive = await this.interactiveDetector.isInteractive(node);
     this._clickableCache.set(node.backendNodeId, isInteractive);
 
@@ -335,9 +342,7 @@ export class DOMTreeSerializer {
   /**
    * Check if element is new compared to previous state
    */
-  private isNewElement(
-    node: EnhancedDOMTreeNode
-  ): boolean {
+  private isNewElement(node: EnhancedDOMTreeNode): boolean {
     if (!this._previousCachedSelectorMap) {
       return true; // First run, everything is new
     }
@@ -360,7 +365,9 @@ export class DOMTreeSerializer {
     if (node.actualChildren) {
       for (const child of node.actualChildren) {
         if (await this.interactiveDetector.isInteractive(child)) {
-          this.logger.debug(`Found interactive descendant: ${child.tag} (backendNodeId: ${child.backendNodeId})`);
+          this.logger.debug(
+            `Found interactive descendant: ${child.tag} (backendNodeId: ${child.backendNodeId})`
+          );
           return true;
         }
 
@@ -383,7 +390,6 @@ export class DOMTreeSerializer {
     return false;
   }
 
-  
   /**
    * Calculate serialization statistics
    */
@@ -842,7 +848,9 @@ export class DOMTreeSerializer {
         // Add interactive marker if clickable
         if (node.interactiveIndex !== null && !node.excludedByBoundingBox) {
           const newPrefix = node.isNew ? "*" : "";
-          line += `${newPrefix}[${node.originalNode.backendNodeId || node.originalNode.nodeId}]`;
+          line += `${newPrefix}[${
+            node.originalNode.backendNodeId || node.originalNode.nodeId
+          }]`;
         }
 
         line += "<svg";
@@ -919,7 +927,9 @@ export class DOMTreeSerializer {
         // Clickable (and possibly scrollable)
         const newPrefix = node.isNew ? "*" : "";
         const scrollPrefix = shouldShowScroll ? "|SCROLL[" : "[";
-        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${node.originalNode.backendNodeId || node.originalNode.nodeId}]<${node.originalNode.tag}`;
+        line = `${depthStr}${shadowPrefix}${newPrefix}${scrollPrefix}${
+          node.originalNode.backendNodeId || node.originalNode.nodeId
+        }]<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === "IFRAME") {
         line = `${depthStr}${shadowPrefix}|IFRAME|<${node.originalNode.tag}`;
       } else if (node.originalNode.tag.toUpperCase() === "FRAME") {

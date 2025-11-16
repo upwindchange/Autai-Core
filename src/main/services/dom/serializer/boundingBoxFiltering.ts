@@ -10,8 +10,12 @@ import type {
   SimplifiedNode,
   SerializationConfig,
 } from "@shared/dom";
+import type { WebContents } from "electron";
 import log from "electron-log/main";
-import { InteractiveElementDetector } from "./InteractiveElementDetector";
+import { getElementSize } from "@/services/dom/utils/DOMUtils";
+
+// Root level logger for this module
+const logger = log.scope("BoundingBoxFiltering");
 
 // ==================== BOUNDING BOX CONSTANTS ====================
 
@@ -94,9 +98,7 @@ export function shouldKeepContainedElement(node: SimplifiedNode): boolean {
   const tag = node.originalNode.tag?.toLowerCase();
 
   // Always keep form elements
-  if (
-    ["input", "select", "textarea", "label", "option"].includes(tag || "")
-  ) {
+  if (["input", "select", "textarea", "label", "option"].includes(tag || "")) {
     return true;
   }
 
@@ -136,7 +138,9 @@ export function shouldKeepContainedElement(node: SimplifiedNode): boolean {
 /**
  * Find propagating parent for bounds checking
  */
-export function findPropagatingParent(_node: SimplifiedNode): SimplifiedNode | null {
+export function findPropagatingParent(
+  _node: SimplifiedNode
+): SimplifiedNode | null {
   // Note: SimplifiedNode parent relationship is handled differently
   // This method is called after the tree is built, so we traverse the tree structure
   // The actual parent finding logic is implemented in applyBoundingBoxFiltering
@@ -148,9 +152,9 @@ export function findPropagatingParent(_node: SimplifiedNode): SimplifiedNode | n
  */
 export async function isWithinValidSizeRange(
   node: EnhancedDOMTreeNode,
-  interactiveDetector: InteractiveElementDetector
+  webContents: WebContents
 ): Promise<boolean> {
-  const size = await interactiveDetector.getElementSize(node);
+  const size = await getElementSize(node, webContents, logger);
   if (!size) {
     return false;
   }
@@ -169,22 +173,19 @@ export async function isWithinValidSizeRange(
 export async function processBoundingBoxNode(
   node: SimplifiedNode,
   config: SerializationConfig,
-  interactiveDetector: InteractiveElementDetector
+  webContents: WebContents
 ): Promise<boolean> {
   const enhancedNode = node.originalNode;
 
   // Skip if element is outside valid size range
-  if (!(await isWithinValidSizeRange(enhancedNode, interactiveDetector))) {
+  if (!(await isWithinValidSizeRange(enhancedNode, webContents))) {
     return false;
   }
 
   // Apply bounds propagation filtering if enabled
   if (config.boundingBoxConfig?.enablePropagationFiltering) {
     const propagatingParent = findPropagatingParent(node);
-    if (
-      propagatingParent &&
-      isContainedInParent(node, propagatingParent)
-    ) {
+    if (propagatingParent && isContainedInParent(node, propagatingParent)) {
       // Element is contained within a propagating parent
       if (!shouldKeepContainedElement(node)) {
         return false; // Filter out contained elements that shouldn't be kept
@@ -204,15 +205,13 @@ export async function processBoundingBoxNode(
  *
  * @param rootNode The root SimplifiedNode to process
  * @param config Configuration for bounding box filtering
- * @param interactiveDetector Interactive element detector for size calculations
+ * @param webContents WebContents instance for CDP operations
  */
 export async function applyBoundingBoxFiltering(
   rootNode: SimplifiedNode,
   config: SerializationConfig,
-  interactiveDetector: InteractiveElementDetector
+  webContents: WebContents
 ): Promise<void> {
-  const logger = log.scope("DOMTreeSerializer");
-
   try {
     if (!config.enableBoundingBoxFiltering) {
       logger.debug("Bounding box filtering disabled");
@@ -230,18 +229,20 @@ export async function applyBoundingBoxFiltering(
       node: SimplifiedNode
     ): Promise<boolean> => {
       totalNodes++;
-      const shouldKeep = await processBoundingBoxNode(node, config, interactiveDetector);
+      const shouldKeep = await processBoundingBoxNode(
+        node,
+        config,
+        webContents
+      );
       if (!shouldKeep) {
         excludedNodes++;
         node.excludedByBoundingBox = true;
 
         // Determine exclusion reason for statistics
-        if (!(await isWithinValidSizeRange(node.originalNode, interactiveDetector))) {
+        if (!(await isWithinValidSizeRange(node.originalNode, webContents))) {
           sizeFilteredNodes++;
           node.exclusionReason = "size_filtered";
-        } else if (
-          config.boundingBoxConfig?.enablePropagationFiltering
-        ) {
+        } else if (config.boundingBoxConfig?.enablePropagationFiltering) {
           const propagatingParent = findPropagatingParent(node);
           if (
             propagatingParent &&
