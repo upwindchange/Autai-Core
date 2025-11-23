@@ -17,7 +17,7 @@ import type {
   EnhancedSnapshotNode,
   BoundsObject,
 } from "@shared/dom";
-import type { ClickOptions, ClickResult } from "@shared/dom/interaction";
+import type { ClickOptions, ClickResult, FillOptions, FillResult } from "@shared/dom/interaction";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 import {
   sendCDPCommand,
@@ -471,6 +471,63 @@ export class DOMService implements IDOMService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Click operation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Fill an input element with text using backendNodeId
+   */
+  async fillElement(
+    backendNodeId: number,
+    options: FillOptions
+  ): Promise<FillResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug(
+        `Filling element with backendNodeId: ${backendNodeId}`,
+        {
+          backendNodeId,
+          value: options.value,
+          clear: options.clear,
+          keystrokeDelay: options.keystrokeDelay,
+        }
+      );
+
+      const result = await this.elementInteraction.fillElement(
+        backendNodeId,
+        options
+      );
+
+      if (result.success) {
+        this.logger.info(`Element filled successfully`, {
+          backendNodeId,
+          charactersTyped: result.charactersTyped,
+          method: result.method,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to fill element`, {
+          backendNodeId,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Fill operation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
       );
 
       return {

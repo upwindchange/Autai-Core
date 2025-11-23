@@ -5,6 +5,7 @@ import { is } from "@electron-toolkit/utils";
 import log from "electron-log/main";
 import { DOMService } from "./services/dom/DOMService";
 import type { SerializedDOMState, SerializationConfig } from "@shared/dom";
+import type { ClickOptions, FillOptions } from "@shared/dom/interaction";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = log.scope("main");
@@ -220,4 +221,34 @@ ipcMain.handle("dom:getStatus", () => {
     return { isInitialized: false, isAttached: false };
   }
   return domService.getStatus();
+});
+
+ipcMain.handle("dom:clickElement", async (_, backendNodeId: number, options?: ClickOptions) => {
+  if (!domService) {
+    throw new Error("DOMService not initialized");
+  }
+  try {
+    logger.info(`IPC: Clicking element with backendNodeId: ${backendNodeId}`);
+    const result = await domService.clickElement(backendNodeId, options);
+    logger.info(`IPC: Element click result: ${result.success ? 'success' : 'failed'}`);
+    return result;
+  } catch (error) {
+    logger.error(`IPC: Failed to click element with backendNodeId ${backendNodeId}:`, error);
+    throw error;
+  }
+});
+
+ipcMain.handle("dom:fillElement", async (_, backendNodeId: number, options: FillOptions) => {
+  if (!domService) {
+    throw new Error("DOMService not initialized");
+  }
+  try {
+    logger.info(`IPC: Filling element with backendNodeId: ${backendNodeId}, value: "${options.value}"`);
+    const result = await domService.fillElement(backendNodeId, options);
+    logger.info(`IPC: Element fill result: ${result.success ? 'success' : 'failed'}`);
+    return result;
+  } catch (error) {
+    logger.error(`IPC: Failed to fill element with backendNodeId ${backendNodeId}:`, error);
+    throw error;
+  }
 });

@@ -14,6 +14,7 @@ import type {
   PaintOrderStats,
   BoundingBoxFilterStats,
 } from "./types";
+import type { FillOptions, FillResult } from "./interaction";
 
 export interface IDOMService {
   /**
@@ -56,6 +57,29 @@ export interface IDOMService {
     isAttached: boolean;
     webContentsId: number;
   };
+
+  /**
+   * Click an element using its backendNodeId
+   */
+  clickElement(
+    backendNodeId: number,
+    options?: import("./interaction").ClickOptions
+  ): Promise<import("./interaction").ClickResult>;
+
+  /**
+   * Fill an input element with text using its backendNodeId
+   */
+  fillElement(
+    backendNodeId: number,
+    options: FillOptions
+  ): Promise<FillResult>;
+
+  /**
+   * Get element bounding box using backendNodeId
+   */
+  getElementBoundingBox(
+    backendNodeId: number
+  ): Promise<{ x: number; y: number; width: number; height: number } | null>;
 
   /**
    * Cleanup resources

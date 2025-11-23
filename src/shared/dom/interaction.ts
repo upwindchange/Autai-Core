@@ -111,6 +111,55 @@ export interface ClickResult {
 	duration?: number;
 }
 
+export interface FillOptions {
+	/**
+	 * Text value to input
+	 */
+	value: string;
+
+	/**
+	 * Whether to clear existing text before typing (default: true)
+	 */
+	clear?: boolean;
+
+	/**
+	 * Delay between keystrokes in milliseconds (default: 18)
+	 */
+	keystrokeDelay?: number;
+
+	/**
+	 * Maximum time to wait for fill completion in milliseconds (default: 10000)
+	 */
+	timeout?: number;
+}
+
+export interface FillResult {
+	/**
+	 * Whether the fill operation was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Error message if fill failed
+	 */
+	error?: string;
+
+	/**
+	 * Number of characters that were typed
+	 */
+	charactersTyped?: number;
+
+	/**
+	 * Which method was used for the final typing operation
+	 */
+	method?: 'cdp' | 'javascript';
+
+	/**
+	 * Time taken for the entire fill operation in milliseconds
+	 */
+	duration?: number;
+}
+
 export interface ViewportInfo {
 	/**
 	 * Viewport width in pixels
@@ -131,4 +180,80 @@ export interface ViewportInfo {
 	 * Scroll position Y
 	 */
 	scrollY: number;
+}
+
+export interface SelectOptionOptions {
+	/**
+	 * Single value or array of values to select
+	 */
+	values: string | string[];
+
+	/**
+	 * Whether to clear existing selections before selecting (default: true)
+	 */
+	clear?: boolean;
+
+	/**
+	 * Maximum time to wait for selection completion in milliseconds (default: 5000)
+	 */
+	timeout?: number;
+}
+
+export interface SelectOptionResult {
+	/**
+	 * Whether the selection was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Error message if selection failed
+	 */
+	error?: string;
+
+	/**
+	 * Number of options that were successfully selected
+	 */
+	optionsSelected?: number;
+
+	/**
+	 * Array of option values that were matched and selected
+	 */
+	matchedValues?: string[];
+
+	/**
+	 * Which method was used for the selection
+	 */
+	method?: 'cdp' | 'javascript';
+
+	/**
+	 * Time taken for the entire selection operation in milliseconds
+	 */
+	duration?: number;
+}
+
+export interface OptionElement {
+	/**
+	 * Backend node ID of the option element
+	 */
+	backendNodeId: number;
+
+	/**
+	 * Option value attribute
+	 */
+	value: string;
+
+	/**
+	 * Option text content
+	 */
+	text: string;
+
+	/**
+	 * Whether the option is currently selected
+	 */
+	selected: boolean;
+
+	/**
+	 * Whether the option is disabled
+	 */
+	disabled: boolean;
 }

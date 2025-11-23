@@ -4,5 +4,4 @@
  * Unified DOM serialization with single-pass processing
  */
 
-export { DOMTreeSerializer } from './DOMTreeSerializer';
-export type { SerializationTiming } from '@shared/dom';
+export { DOMTreeSerializer } from "./DOMTreeSerializer";
