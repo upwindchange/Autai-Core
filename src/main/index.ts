@@ -5,7 +5,7 @@ import { is } from "@electron-toolkit/utils";
 import log from "electron-log/main";
 import { DOMService } from "./services/dom/DOMService";
 import type { SerializedDOMState, SerializationConfig } from "@shared/dom";
-import type { ClickOptions, FillOptions } from "@shared/dom/interaction";
+import type { ClickOptions, FillOptions, SelectOptionOptions, HoverOptions } from "@shared/dom/interaction";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = log.scope("main");
@@ -249,6 +249,36 @@ ipcMain.handle("dom:fillElement", async (_, backendNodeId: number, options: Fill
     return result;
   } catch (error) {
     logger.error(`IPC: Failed to fill element with backendNodeId ${backendNodeId}:`, error);
+    throw error;
+  }
+});
+
+ipcMain.handle("dom:selectOption", async (_, backendNodeId: number, options: SelectOptionOptions) => {
+  if (!domService) {
+    throw new Error("DOMService not initialized");
+  }
+  try {
+    logger.info(`IPC: Selecting options for element with backendNodeId: ${backendNodeId}, values: "${Array.isArray(options.values) ? options.values.join(', ') : options.values}"`);
+    const result = await domService.selectOption(backendNodeId, options);
+    logger.info(`IPC: Element select result: ${result.success ? 'success' : 'failed'}, options selected: ${result.optionsSelected || 0}`);
+    return result;
+  } catch (error) {
+    logger.error(`IPC: Failed to select options for element with backendNodeId ${backendNodeId}:`, error);
+    throw error;
+  }
+});
+
+ipcMain.handle("dom:hoverElement", async (_, backendNodeId: number, options?: HoverOptions) => {
+  if (!domService) {
+    throw new Error("DOMService not initialized");
+  }
+  try {
+    logger.info(`IPC: Hovering element with backendNodeId: ${backendNodeId}`);
+    const result = await domService.hoverElement(backendNodeId, options);
+    logger.info(`IPC: Element hover result: ${result.success ? 'success' : 'failed'}`);
+    return result;
+  } catch (error) {
+    logger.error(`IPC: Failed to hover element with backendNodeId ${backendNodeId}:`, error);
     throw error;
   }
 });

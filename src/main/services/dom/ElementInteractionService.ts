@@ -20,6 +20,8 @@ import type {
   SelectOptionOptions,
   SelectOptionResult,
   OptionElement,
+  HoverOptions,
+  HoverResult,
 } from "../../../shared/dom/interaction";
 import { sendCDPCommand } from "./utils/DOMUtils";
 import type { LogFunctions } from "electron-log";
@@ -1360,5 +1362,77 @@ export class ElementInteractionService {
     }
 
     return null;
+  }
+
+  /**
+   * Hover over an element using backendNodeId with robust coordinate resolution
+   * Based on browser-use hover implementation with enhanced coordinate resolution
+   */
+  async hoverElement(
+    backendNodeId: number,
+    options: HoverOptions = {}
+  ): Promise<HoverResult> {
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug(
+        `Hovering element with backendNodeId: ${backendNodeId}`,
+        {
+          backendNodeId,
+          options: options || {},
+        }
+      );
+
+      // Get viewport information
+      const viewport = await this.getViewportInfo();
+
+      // Get element coordinates using existing fallback methods
+      const { coordinates, method } = await this.getElementCoordinates(
+        backendNodeId,
+        viewport
+      );
+
+      // Ensure coordinates are within viewport bounds
+      const hoverX = Math.max(0, Math.min(viewport.width - 1, coordinates.x));
+      const hoverY = Math.max(0, Math.min(viewport.height - 1, coordinates.y));
+
+      // Scroll element into view if needed
+      try {
+        await sendCDPCommand(
+          this.webContents,
+          "DOM.scrollIntoViewIfNeeded",
+          { backendNodeId },
+          this.logger
+        );
+        await this.sleep(50); // Wait for scroll to complete
+      } catch (_error) {
+        // Continue even if scroll fails
+      }
+
+      // Perform the hover using CDP
+      await sendCDPCommand(
+        this.webContents,
+        "Input.dispatchMouseEvent",
+        {
+          type: "mouseMoved",
+          x: hoverX,
+          y: hoverY,
+        },
+        this.logger
+      );
+
+      return {
+        success: true,
+        coordinates: { x: hoverX, y: hoverY },
+        method,
+        duration: Date.now() - startTime,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime,
+      };
+    }
   }
 }

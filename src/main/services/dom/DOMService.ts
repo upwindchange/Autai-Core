@@ -17,7 +17,7 @@ import type {
   EnhancedSnapshotNode,
   BoundsObject,
 } from "@shared/dom";
-import type { ClickOptions, ClickResult, FillOptions, FillResult } from "@shared/dom/interaction";
+import type { ClickOptions, ClickResult, FillOptions, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult } from "@shared/dom/interaction";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 import {
   sendCDPCommand,
@@ -528,6 +528,119 @@ export class DOMService implements IDOMService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Fill operation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Select option(s) in a select element using backendNodeId
+   */
+  async selectOption(
+    backendNodeId: number,
+    options: SelectOptionOptions
+  ): Promise<SelectOptionResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug(
+        `Selecting options for element with backendNodeId: ${backendNodeId}`,
+        {
+          backendNodeId,
+          values: options.values,
+          clear: options.clear,
+          timeout: options.timeout,
+        }
+      );
+
+      const result = await this.elementInteraction.selectOption(
+        backendNodeId,
+        options
+      );
+
+      if (result.success) {
+        this.logger.info(`Options selected successfully`, {
+          backendNodeId,
+          optionsSelected: result.optionsSelected,
+          matchedValues: result.matchedValues,
+          method: result.method,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to select options`, {
+          backendNodeId,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Select operation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Hover over an element using its backendNodeId with robust coordinate resolution
+   */
+  async hoverElement(
+    backendNodeId: number,
+    options?: HoverOptions
+  ): Promise<HoverResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug(
+        `Hovering element with backendNodeId: ${backendNodeId}`,
+        {
+          backendNodeId,
+          options: options || {},
+        }
+      );
+
+      const result = await this.elementInteraction.hoverElement(
+        backendNodeId,
+        options
+      );
+
+      if (result.success) {
+        this.logger.info(`Element hovered successfully`, {
+          backendNodeId,
+          coordinates: result.coordinates,
+          method: result.method,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to hover element`, {
+          backendNodeId,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Hover operation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
       );
 
       return {

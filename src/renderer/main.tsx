@@ -16,15 +16,22 @@ function App() {
     clickId,
     fillId,
     fillText,
+    selectId,
+    selectValues,
     isClicking,
     isFilling,
+    isSelecting,
     lastClickResult,
     lastFillResult,
+    lastSelectResult,
     setClickId,
     setFillId,
     setFillText,
+    setSelectId,
+    setSelectValues,
     clickElement,
-    fillElement
+    fillElement,
+    selectElement
   } = useUiStore();
 
   useEffect(() => {
@@ -89,6 +96,27 @@ function App() {
     await fillElement(nodeId, { value: fillText.trim() });
   };
 
+  const handleSelect = async () => {
+    const nodeId = parseInt(selectId.trim());
+    if (isNaN(nodeId)) {
+      alert("Please enter a valid backend node ID");
+      return;
+    }
+    if (!selectValues.trim()) {
+      alert("Please enter values to select");
+      return;
+    }
+
+    // Parse comma-separated values or single value
+    const values = selectValues.split(',').map(v => v.trim()).filter(v => v.length > 0);
+    if (values.length === 0) {
+      alert("Please enter at least one valid value to select");
+      return;
+    }
+
+    await selectElement(nodeId, { values });
+  };
+
   return (
     <div
       className="fixed inset-0 flex flex-col bg-gray-100"
@@ -143,6 +171,31 @@ function App() {
             </button>
           </div>
 
+          {/* Row 3: Select option(s) + ID input */}
+          <div className="flex items-center gap-4">
+            <input
+              type="text"
+              placeholder="ID"
+              value={selectId}
+              onChange={(e) => setSelectId(e.target.value)}
+              className="w-20 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="text"
+              placeholder="select values (comma-separated)"
+              value={selectValues}
+              onChange={(e) => setSelectValues(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleSelect}
+              disabled={isSelecting}
+              className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {isSelecting ? "selecting..." : "select"}
+            </button>
+          </div>
+
           {/* Result feedback */}
           <div className="text-sm">
             {lastClickResult && (
@@ -157,6 +210,14 @@ function App() {
                 Fill: {lastFillResult.success ? 'Success' : 'Failed'}
                 {lastFillResult.error && ` - ${lastFillResult.error}`}
                 {lastFillResult.charactersTyped && ` - ${lastFillResult.charactersTyped} chars typed`}
+              </div>
+            )}
+            {lastSelectResult && (
+              <div className={`p-2 rounded ${lastSelectResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                Select: {lastSelectResult.success ? 'Success' : 'Failed'}
+                {lastSelectResult.error && ` - ${lastSelectResult.error}`}
+                {lastSelectResult.optionsSelected !== undefined && ` - ${lastSelectResult.optionsSelected} option${lastSelectResult.optionsSelected === 1 ? '' : 's'} selected`}
+                {lastSelectResult.matchedValues && lastSelectResult.matchedValues.length > 0 && ` - [${lastSelectResult.matchedValues.join(', ')}]`}
               </div>
             )}
           </div>

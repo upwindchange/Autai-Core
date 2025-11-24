@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { Rectangle } from "electron";
-import type { ClickOptions, FillOptions, ClickResult, FillResult } from "@shared/dom/interaction";
+import type { ClickOptions, FillOptions, ClickResult, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult } from "@shared/dom/interaction";
 
 interface UiState {
   // Container reference for resize observer
@@ -14,10 +14,17 @@ interface UiState {
   clickId: string;
   fillId: string;
   fillText: string;
+  selectId: string;
+  selectValues: string;
+  hoverId: string;
   isClicking: boolean;
   isFilling: boolean;
+  isSelecting: boolean;
+  isHovering: boolean;
   lastClickResult: ClickResult | null;
   lastFillResult: FillResult | null;
+  lastSelectResult: SelectOptionResult | null;
+  lastHoverResult: HoverResult | null;
 
   // Actions
   setContainerRef: (ref: HTMLDivElement | null) => void;
@@ -27,8 +34,13 @@ interface UiState {
   setClickId: (id: string) => void;
   setFillId: (id: string) => void;
   setFillText: (text: string) => void;
+  setSelectId: (id: string) => void;
+  setSelectValues: (values: string) => void;
+  setHoverId: (id: string) => void;
   clickElement: (backendNodeId: number, options?: ClickOptions) => Promise<ClickResult>;
   fillElement: (backendNodeId: number, options: FillOptions) => Promise<FillResult>;
+  selectElement: (backendNodeId: number, options: SelectOptionOptions) => Promise<SelectOptionResult>;
+  hoverElement: (backendNodeId: number, options?: HoverOptions) => Promise<HoverResult>;
 }
 
 export const useUiStore = create<UiState>()(
@@ -41,10 +53,17 @@ export const useUiStore = create<UiState>()(
     clickId: "",
     fillId: "",
     fillText: "",
+    selectId: "",
+    selectValues: "",
+    hoverId: "",
     isClicking: false,
     isFilling: false,
+    isSelecting: false,
+    isHovering: false,
     lastClickResult: null,
     lastFillResult: null,
+    lastSelectResult: null,
+    lastHoverResult: null,
 
     // Actions
     setContainerRef: (ref) => set({ containerRef: ref }),
@@ -64,6 +83,9 @@ export const useUiStore = create<UiState>()(
     setClickId: (id) => set({ clickId: id }),
     setFillId: (id) => set({ fillId: id }),
     setFillText: (text) => set({ fillText: text }),
+    setSelectId: (id) => set({ selectId: id }),
+    setSelectValues: (values) => set({ selectValues: values }),
+    setHoverId: (id) => set({ hoverId: id }),
 
     clickElement: async (backendNodeId: number, options?: ClickOptions): Promise<ClickResult> => {
       set({ isClicking: true });
@@ -104,6 +126,48 @@ export const useUiStore = create<UiState>()(
         return errorResult;
       } finally {
         set({ isFilling: false });
+      }
+    },
+
+    selectElement: async (backendNodeId: number, options: SelectOptionOptions): Promise<SelectOptionResult> => {
+      set({ isSelecting: true });
+      try {
+        if (!window.ipcRenderer) {
+          throw new Error("IPC Renderer not available");
+        }
+        const result = await window.ipcRenderer.invoke("dom:selectOption", backendNodeId, options) as SelectOptionResult;
+        set({ lastSelectResult: result });
+        return result;
+      } catch (error) {
+        const errorResult: SelectOptionResult = {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        set({ lastSelectResult: errorResult });
+        return errorResult;
+      } finally {
+        set({ isSelecting: false });
+      }
+    },
+
+    hoverElement: async (backendNodeId: number, options?: HoverOptions): Promise<HoverResult> => {
+      set({ isHovering: true });
+      try {
+        if (!window.ipcRenderer) {
+          throw new Error("IPC Renderer not available");
+        }
+        const result = await window.ipcRenderer.invoke("dom:hoverElement", backendNodeId, options) as HoverResult;
+        set({ lastHoverResult: result });
+        return result;
+      } catch (error) {
+        const errorResult: HoverResult = {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        set({ lastHoverResult: errorResult });
+        return errorResult;
+      } finally {
+        set({ isHovering: false });
       }
     },
   }))

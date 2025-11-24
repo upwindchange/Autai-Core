@@ -231,6 +231,40 @@ export interface SelectOptionResult {
 	duration?: number;
 }
 
+export interface HoverOptions {
+	/**
+	 * Maximum time to wait for hover completion in milliseconds (default: 3000)
+	 */
+	timeout?: number;
+}
+
+export interface HoverResult {
+	/**
+	 * Whether the hover was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Error message if hover failed
+	 */
+	error?: string;
+
+	/**
+	 * Final coordinates used for hovering
+	 */
+	coordinates?: Position;
+
+	/**
+	 * Which method was used for coordinate resolution
+	 */
+	method?: 'contentQuads' | 'boxModel' | 'boundingRect' | 'javascript';
+
+	/**
+	 * Time taken for the entire hover operation in milliseconds
+	 */
+	duration?: number;
+}
+
 export interface OptionElement {
 	/**
 	 * Backend node ID of the option element
