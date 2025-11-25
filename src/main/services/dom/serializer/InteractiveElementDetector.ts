@@ -97,16 +97,12 @@ const SIZE_THRESHOLDS = {
 // Compound Control Detection Constants (ported from browser-use)
 
 // Input types that should be virtualized as compound controls
+// NOTE: Date/time inputs are EXCLUDED because they confuse the model and HTML5 requires ISO format
 const COMPOUND_INPUT_TYPES = [
   "range",
   "number",
   "color",
   "file",
-  "date",
-  "time",
-  "datetime-local",
-  "month",
-  "week",
 ];
 
 // Elements that should be virtualized as compound controls
@@ -804,8 +800,18 @@ export class InteractiveElementDetector {
         await this.buildDetailsComponents(node);
       } else if (tag === "audio" || tag === "video") {
         await this.buildMediaComponents(node);
-      } else if (node.attributes.role?.toLowerCase() === "combobox") {
-        await this.buildComboboxComponents(node);
+      } else {
+        // Handle ARIA roles for elements that don't match specific tags
+        const ariaRole = node.attributes.role?.toLowerCase();
+        if (ariaRole === "combobox") {
+          await this.buildComboboxComponents(node);
+        } else if (ariaRole === "slider") {
+          await this.buildSliderComponents(node);
+        } else if (ariaRole === "spinbutton") {
+          await this.buildSpinbuttonComponents(node);
+        } else if (ariaRole === "listbox") {
+          await this.buildListboxComponents(node);
+        }
       }
 
       this.logger.debug(
@@ -840,13 +846,6 @@ export class InteractiveElementDetector {
         break;
       case "file":
         this.buildFileComponents(node);
-        break;
-      case "date":
-      case "time":
-      case "datetime-local":
-      case "month":
-      case "week":
-        this.buildDateTimeComponents(node, inputType);
         break;
     }
   }
@@ -895,63 +894,53 @@ export class InteractiveElementDetector {
    * Build components for file input
    */
   private buildFileComponents(node: EnhancedDOMTreeNode): void {
-    const hasFile = node.attributes.value && node.attributes.value !== "";
+    const multiple = node.attributes.multiple !== undefined;
+
+    // Extract current file selection state from AX tree
+    let currentValue = "None"; // Default to explicit "None" string for clarity
+
+    if (node.axNode && node.axNode.properties) {
+      for (const prop of node.axNode.properties) {
+        // Try valuetext first (human-readable display like "file.pdf")
+        if (String(prop.name) === "valuetext" && prop.value) {
+          const valueStr = String(prop.value).trim();
+          if (valueStr && valueStr.toLowerCase() !== "" &&
+              valueStr.toLowerCase() !== "no file chosen" &&
+              valueStr.toLowerCase() !== "no file selected") {
+            currentValue = valueStr;
+            break;
+          }
+        }
+        // Also try 'value' property (may include full path)
+        else if (String(prop.name) === "value" && prop.value) {
+          const valueStr = String(prop.value).trim();
+          if (valueStr) {
+            // For file inputs, value might be a full path - extract just filename
+            if (valueStr.includes("\\")) {
+              currentValue = valueStr.split("\\").pop() || valueStr;
+            } else if (valueStr.includes("/")) {
+              currentValue = valueStr.split("/").pop() || valueStr;
+            } else {
+              currentValue = valueStr;
+            }
+            break;
+          }
+        }
+      }
+    }
 
     node._compoundChildren?.push(
-      { role: "button", name: "Browse" },
+      { role: "button", name: "Browse Files" },
       {
         role: "textbox",
-        name: "Filename",
-        valuenow: hasFile ? node.attributes.value : "No file selected",
+        name: multiple ? "Files Selected" : "File Selected",
+        valuenow: currentValue,
         readonly: true,
       }
     );
   }
 
-  /**
-   * Build components for date/time inputs
-   */
-  private buildDateTimeComponents(
-    node: EnhancedDOMTreeNode,
-    inputType: string
-  ): void {
-    let formatHint = "";
-    let formats = "";
-
-    switch (inputType) {
-      case "date":
-        formatHint = "YYYY-MM-DD";
-        formats = "ISO 8601 date";
-        break;
-      case "time":
-        formatHint = "HH:MM";
-        formats = "24-hour time";
-        break;
-      case "datetime-local":
-        formatHint = "YYYY-MM-DDTHH:MM";
-        formats = "ISO 8601 datetime";
-        break;
-      case "month":
-        formatHint = "YYYY-MM";
-        formats = "Year-month";
-        break;
-      case "week":
-        formatHint = "YYYY-Www";
-        formats = "ISO week date";
-        break;
-    }
-
-    const value = node.attributes.value || "";
-
-    node._compoundChildren?.push({
-      role: "textbox",
-      name: "Date/Time Value",
-      valuenow: value,
-      format_hint: formatHint,
-      formats,
-    });
-  }
-
+  
   /**
    * Build components for select elements
    */
@@ -1057,11 +1046,17 @@ export class InteractiveElementDetector {
   private buildDetailsComponents(node: EnhancedDOMTreeNode): void {
     const isOpen = node.attributes.open !== undefined;
 
-    node._compoundChildren?.push({
-      role: "button",
-      name: "Toggle Details",
-      valuenow: isOpen ? "open" : "closed",
-    });
+    node._compoundChildren?.push(
+      {
+        role: "button",
+        name: "Toggle Disclosure",
+        valuenow: isOpen ? "open" : "closed",
+      },
+      {
+        role: "region",
+        name: "Content Area",
+      }
+    );
   }
 
   /**
@@ -1091,6 +1086,58 @@ export class InteractiveElementDetector {
       { role: "button", name: "Dropdown Toggle" },
       { role: "listbox", name: "Options" }
     );
+  }
+
+  /**
+   * Build components for ARIA slider elements
+   */
+  private buildSliderComponents(node: EnhancedDOMTreeNode): void {
+    const min = this.safeParseNumber(node.attributes["aria-valuemin"], 0.0);
+    const max = this.safeParseNumber(node.attributes["aria-valuemax"], 100.0);
+    const value = this.safeParseNumber(node.attributes["aria-valuenow"], (min + max) / 2);
+
+    node._compoundChildren?.push({
+      role: "slider",
+      name: "Value",
+      valuemin: min,
+      valuemax: max,
+      valuenow: value,
+    });
+  }
+
+  /**
+   * Build components for ARIA spinbutton elements
+   */
+  private buildSpinbuttonComponents(node: EnhancedDOMTreeNode): void {
+    const min = this.safeParseNumber(node.attributes["aria-valuemin"], 0.0);
+    const max = this.safeParseNumber(node.attributes["aria-valuemax"], 100.0);
+    const value = this.safeParseNumber(node.attributes["aria-valuenow"], (min + max) / 2);
+
+    node._compoundChildren?.push(
+      { role: "button", name: "Increment" },
+      { role: "button", name: "Decrement" },
+      {
+        role: "textbox",
+        name: "Value",
+        valuemin: min,
+        valuemax: max,
+        valuenow: value,
+      }
+    );
+  }
+
+  /**
+   * Build components for ARIA listbox elements
+   */
+  private buildListboxComponents(node: EnhancedDOMTreeNode): void {
+    // Try to get option information from the node
+    const optionsCount = this.safeParseNumber(node.attributes["aria-setsize"], 0);
+
+    node._compoundChildren?.push({
+      role: "listbox",
+      name: "Options",
+      options_count: optionsCount > 0 ? optionsCount : null,
+    });
   }
 
   /**
