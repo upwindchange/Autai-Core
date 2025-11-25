@@ -98,12 +98,7 @@ const SIZE_THRESHOLDS = {
 
 // Input types that should be virtualized as compound controls
 // NOTE: Date/time inputs are EXCLUDED because they confuse the model and HTML5 requires ISO format
-const COMPOUND_INPUT_TYPES = [
-  "range",
-  "number",
-  "color",
-  "file",
-];
+const COMPOUND_INPUT_TYPES = ["range", "number", "color", "file"];
 
 // Elements that should be virtualized as compound controls
 const COMPOUND_ELEMENT_TAGS = ["select", "details", "audio", "video"];
@@ -207,6 +202,11 @@ export class InteractiveElementDetector {
         return true; // Special case for iframes
       }
 
+      // Tier 7: Compound control detection
+      if (await this.checkCompoundControls(node)) {
+        return true;
+      }
+
       // Tier 2: Specialized tag detection
       if (this.checkSpecializedTags(node)) {
         return true;
@@ -241,11 +241,6 @@ export class InteractiveElementDetector {
         return true;
       }
       if (this.checkCursorStyle(node)) {
-        return true;
-      }
-
-      // Tier 7: Compound control detection
-      if (await this.checkCompoundControls(node)) {
         return true;
       }
 
@@ -904,9 +899,12 @@ export class InteractiveElementDetector {
         // Try valuetext first (human-readable display like "file.pdf")
         if (String(prop.name) === "valuetext" && prop.value) {
           const valueStr = String(prop.value).trim();
-          if (valueStr && valueStr.toLowerCase() !== "" &&
-              valueStr.toLowerCase() !== "no file chosen" &&
-              valueStr.toLowerCase() !== "no file selected") {
+          if (
+            valueStr &&
+            valueStr.toLowerCase() !== "" &&
+            valueStr.toLowerCase() !== "no file chosen" &&
+            valueStr.toLowerCase() !== "no file selected"
+          ) {
             currentValue = valueStr;
             break;
           }
@@ -940,44 +938,68 @@ export class InteractiveElementDetector {
     );
   }
 
-  
   /**
-   * Build components for select elements
+   * Build components for select elements with enhanced browser-use matching
    */
   private async buildSelectComponents(
     node: EnhancedDOMTreeNode
   ): Promise<void> {
     const optionsInfo = await this.extractSelectOptions(node);
     if (!optionsInfo) {
+      // Fallback: still create basic components for selects without options
+      node._compoundChildren?.push({
+        role: "button",
+        name: "Dropdown Toggle",
+      });
+      node._compoundChildren?.push({
+        role: "listbox",
+        name: "Options",
+        options_count: 0,
+        first_options: [],
+        valuenow: null,
+      });
       return;
     }
 
-    // Add dropdown toggle button
+    // Add dropdown toggle button (consistent with browser-use)
     node._compoundChildren?.push({
       role: "button",
       name: "Dropdown Toggle",
+      valuenow: null,
+      valuemin: null,
+      valuemax: null,
     });
 
-    // Add options listbox
-    node._compoundChildren?.push({
+    // Add options listbox with enhanced information matching browser-use format
+    const listBoxComponent: Record<string, unknown> = {
       role: "listbox",
       name: "Options",
       options_count: optionsInfo.count,
       first_options: optionsInfo.firstOptions,
-      format_hint: optionsInfo.formatHint,
-    });
+      valuenow: null,
+      valuemin: null,
+      valuemax: null,
+    };
+
+    // Add format hint if present (matches browser-use optional format_hint)
+    if (optionsInfo.formatHint) {
+      listBoxComponent.format_hint = optionsInfo.formatHint;
+    }
+
+    node._compoundChildren?.push(listBoxComponent);
   }
 
   /**
-   * Extract options from select element
+   * Extract options from select element with enhanced browser-use capabilities
+   * Includes recursive DOM traversal, proper text extraction, and advanced format detection
    */
   private async extractSelectOptions(node: EnhancedDOMTreeNode): Promise<{
     count: number;
     firstOptions: string[];
-    formatHint: string;
+    formatHint?: string;
   } | null> {
     try {
-      // Use CDP to get select options
+      // Use CDP to get select options with sophisticated extraction
       const result = await sendCDPCommand(
         this.webContents,
         "Runtime.evaluate",
@@ -987,31 +1009,92 @@ export class InteractiveElementDetector {
               const node = document.querySelector('[data-node-id="' + nodeId + '"]');
               if (!node || node.tagName !== 'SELECT') return null;
 
-              const options = Array.from(node.options);
-              const count = options.length;
-              const firstOptions = options.slice(0, 4).map(opt => opt.text || opt.value || '');
+              const options = [];
+              const optionValues = [];
 
-              // Analyze format patterns
-              let formatHint = '';
-              if (count > 0) {
-                const sampleTexts = firstOptions.filter(text => text.length > 0);
-                if (sampleTexts.length > 0) {
-                  // Check for numeric patterns
-                  if (sampleTexts.every(text => /^\\d+$/.test(text))) {
-                    formatHint = 'numeric';
+              function extractOptionsRecursive(element) {
+                // Handle option elements
+                if (element.tagName.toLowerCase() === 'option') {
+                  let optionValue = '';
+                  if (element.hasAttribute('value')) {
+                    optionValue = element.getAttribute('value').trim();
                   }
-                  // Check for date patterns
-                  else if (sampleTexts.every(text => /^\\d{4}-\\d{2}-\\d{2}/.test(text))) {
-                    formatHint = 'date';
+
+                  // Extract text from direct text nodes only
+                  let optionText = '';
+                  for (let child of element.childNodes) {
+                    if (child.nodeType === Node.TEXT_NODE && child.nodeValue) {
+                      optionText += child.nodeValue.trim() + ' ';
+                    }
                   }
-                  // Check for country/state codes
-                  else if (sampleTexts.every(text => /^[A-Z]{2}$/.test(text))) {
-                    formatHint = 'country_code';
+                  optionText = optionText.trim();
+
+                  // Use text as value if no explicit value
+                  if (!optionValue && optionText) {
+                    optionValue = optionText;
+                  }
+
+                  if (optionText || optionValue) {
+                    options.push({text: optionText, value: optionValue});
+                    optionValues.push(optionValue);
+                  }
+                }
+                // Handle optgroup elements
+                else if (element.tagName.toLowerCase() === 'optgroup') {
+                  for (let child of element.children) {
+                    extractOptionsRecursive(child);
+                  }
+                }
+                // Process other children
+                else {
+                  for (let child of element.children) {
+                    extractOptionsRecursive(child);
                   }
                 }
               }
 
-              return { count, firstOptions, formatHint };
+              // Extract from select children
+              for (let child of node.children) {
+                extractOptionsRecursive(child);
+              }
+
+              if (options.length === 0) return null;
+
+              // Build display options with ellipsis and truncation
+              const firstOptions = [];
+              for (let option of options.slice(0, 4)) {
+                const displayText = option.text || option.value;
+                if (displayText) {
+                  const text = displayText.length > 30 ?
+                    displayText.substring(0, 30) + '...' : displayText;
+                  firstOptions.push(text);
+                }
+              }
+
+              if (options.length > 4) {
+                firstOptions.push('... ' + (options.length - 4) + ' more options...');
+              }
+
+              // Enhanced format detection matching browser-use
+              let formatHint = undefined;
+              if (optionValues.length >= 2) {
+                const sampleValues = optionValues.slice(0, 5).filter(val => val);
+
+                if (sampleValues.every(val => /^\\d+$/.test(val))) {
+                  formatHint = 'numeric';
+                }
+                else if (sampleValues.every(val => /^[A-Z]{2}$/.test(val))) {
+                  formatHint = 'country/state codes';
+                }
+                else if (sampleValues.every(val => /[\\/\\\\-]/.test(val))) {
+                  formatHint = 'date/path format';
+                }
+                else if (sampleValues.some(val => /@/.test(val))) {
+                  formatHint = 'email addresses';
+                }
+              }
+
+              return {count: options.length, firstOptions, formatHint};
             })(${node.nodeId})
           `,
         },
@@ -1025,7 +1108,7 @@ export class InteractiveElementDetector {
               value?: {
                 count: number;
                 firstOptions: string[];
-                formatHint: string;
+                formatHint?: string;
               };
             };
           }
@@ -1094,7 +1177,10 @@ export class InteractiveElementDetector {
   private buildSliderComponents(node: EnhancedDOMTreeNode): void {
     const min = this.safeParseNumber(node.attributes["aria-valuemin"], 0.0);
     const max = this.safeParseNumber(node.attributes["aria-valuemax"], 100.0);
-    const value = this.safeParseNumber(node.attributes["aria-valuenow"], (min + max) / 2);
+    const value = this.safeParseNumber(
+      node.attributes["aria-valuenow"],
+      (min + max) / 2
+    );
 
     node._compoundChildren?.push({
       role: "slider",
@@ -1111,7 +1197,10 @@ export class InteractiveElementDetector {
   private buildSpinbuttonComponents(node: EnhancedDOMTreeNode): void {
     const min = this.safeParseNumber(node.attributes["aria-valuemin"], 0.0);
     const max = this.safeParseNumber(node.attributes["aria-valuemax"], 100.0);
-    const value = this.safeParseNumber(node.attributes["aria-valuenow"], (min + max) / 2);
+    const value = this.safeParseNumber(
+      node.attributes["aria-valuenow"],
+      (min + max) / 2
+    );
 
     node._compoundChildren?.push(
       { role: "button", name: "Increment" },
@@ -1131,7 +1220,10 @@ export class InteractiveElementDetector {
    */
   private buildListboxComponents(node: EnhancedDOMTreeNode): void {
     // Try to get option information from the node
-    const optionsCount = this.safeParseNumber(node.attributes["aria-setsize"], 0);
+    const optionsCount = this.safeParseNumber(
+      node.attributes["aria-setsize"],
+      0
+    );
 
     node._compoundChildren?.push({
       role: "listbox",
@@ -1311,5 +1403,4 @@ export class InteractiveElementDetector {
 
     return "Unknown compound control";
   }
-
-  }
+}

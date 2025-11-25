@@ -895,7 +895,7 @@ export class DOMTreeSerializer {
     const depthStr = "\t".repeat(depth);
     let nextDepth = depth;
 
-    if (node.originalNode.tag) {
+    if (node.originalNode.tag && node.originalNode.nodeType !== NodeType.TEXT_NODE) {
       // Skip displaying nodes marked as shouldDisplay=false
       if (!node.shouldDisplay) {
         const childTexts: string[] = [];
