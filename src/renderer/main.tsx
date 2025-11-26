@@ -18,20 +18,25 @@ function App() {
     fillText,
     selectId,
     selectValues,
+    hoverId,
     isClicking,
     isFilling,
     isSelecting,
+    isHovering,
     lastClickResult,
     lastFillResult,
     lastSelectResult,
+    lastHoverResult,
     setClickId,
     setFillId,
     setFillText,
     setSelectId,
     setSelectValues,
+    setHoverId,
     clickElement,
     fillElement,
-    selectElement
+    selectElement,
+    hoverElement
   } = useUiStore();
 
   useEffect(() => {
@@ -117,6 +122,15 @@ function App() {
     await selectElement(nodeId, { values });
   };
 
+  const handleHover = async () => {
+    const nodeId = parseInt(hoverId.trim());
+    if (isNaN(nodeId)) {
+      alert("Please enter a valid backend node ID");
+      return;
+    }
+    await hoverElement(nodeId);
+  };
+
   return (
     <div
       className="fixed inset-0 flex flex-col bg-gray-100"
@@ -196,6 +210,24 @@ function App() {
             </button>
           </div>
 
+          {/* Row 4: Hover button + ID input */}
+          <div className="flex items-center gap-4">
+            <input
+              type="text"
+              placeholder="ID"
+              value={hoverId}
+              onChange={(e) => setHoverId(e.target.value)}
+              className="w-20 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleHover}
+              disabled={isHovering}
+              className="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+              {isHovering ? "hovering..." : "hover"}
+            </button>
+          </div>
+
           {/* Result feedback */}
           <div className="text-sm">
             {lastClickResult && (
@@ -218,6 +250,14 @@ function App() {
                 {lastSelectResult.error && ` - ${lastSelectResult.error}`}
                 {lastSelectResult.optionsSelected !== undefined && ` - ${lastSelectResult.optionsSelected} option${lastSelectResult.optionsSelected === 1 ? '' : 's'} selected`}
                 {lastSelectResult.matchedValues && lastSelectResult.matchedValues.length > 0 && ` - [${lastSelectResult.matchedValues.join(', ')}]`}
+              </div>
+            )}
+            {lastHoverResult && (
+              <div className={`p-2 rounded ${lastHoverResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                Hover: {lastHoverResult.success ? 'Success' : 'Failed'}
+                {lastHoverResult.error && ` - ${lastHoverResult.error}`}
+                {lastHoverResult.coordinates && ` at (${Math.round(lastHoverResult.coordinates.x)}, ${Math.round(lastHoverResult.coordinates.y)})`}
+                {lastHoverResult.method && ` - ${lastHoverResult.method}`}
               </div>
             )}
           </div>

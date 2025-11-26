@@ -21,8 +21,7 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = log.scope("main");
 
-const DEFAULT_URL =
-  "https://nextcloud.quantimpulse.com/apps/forms/s/X2zzHeP2sGLPX2S5aQBarH7Q";
+const DEFAULT_URL = "https://www.google.com";
 
 process.env.APP_ROOT = path.join(__dirname, "../..");
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "out/main");
@@ -37,6 +36,10 @@ let win: BrowserWindow | null = null;
 let webView: WebContentsView | null = null;
 let domService: DOMService | null = null;
 let viewBounds: Rectangle = { x: 0, y: 0, width: 1920, height: 1080 };
+
+// Secondary control panel window
+let controlPanelWindow: BrowserWindow | null = null;
+const CONTROL_PANEL_BOUNDS = { x: 100, y: 100, width: 1280, height: 720 };
 
 const preload = path.join(__dirname, "../preload/index.mjs");
 const indexHtml = path.join(RENDERER_DIST, "index.html");
@@ -102,6 +105,37 @@ function createWindow() {
   logger.info("Window and WebContentsView created successfully");
 }
 
+function createControlPanel() {
+  controlPanelWindow = new BrowserWindow({
+    title: "Autai Control Panel",
+    x: CONTROL_PANEL_BOUNDS.x,
+    y: CONTROL_PANEL_BOUNDS.y,
+    width: CONTROL_PANEL_BOUNDS.width,
+    height: CONTROL_PANEL_BOUNDS.height,
+    icon: process.env.VITE_PUBLIC
+      ? path.join(process.env.VITE_PUBLIC, "favicon.ico")
+      : undefined,
+    webPreferences: {
+      preload,
+      contextIsolation: true,
+      sandbox: false,
+      webviewTag: false,
+    },
+  });
+
+  // Load React app for control panel
+  if (is.dev && ELECTRON_RENDERER_URL) {
+    // Development: Use the control-panel specific URL
+    controlPanelWindow.loadURL(`${ELECTRON_RENDERER_URL}control-panel/`);
+  } else {
+    // Production: Load from built files
+    const controlPanelHtml = path.join(RENDERER_DIST, "control-panel/index.html");
+    controlPanelWindow.loadFile(controlPanelHtml);
+  }
+
+  logger.info("Control panel window created successfully");
+}
+
 app.whenReady().then(async () => {
   log.initialize();
   log.transports.file.level = "info";
@@ -109,14 +143,19 @@ app.whenReady().then(async () => {
 
   logger.info("Application starting");
 
+  // Create both windows
   createWindow();
+  createControlPanel();
 
   app.on("activate", () => {
     const allWindows = BrowserWindow.getAllWindows();
     if (allWindows.length) {
-      allWindows[0].focus();
+      // Focus main window if available, otherwise any window
+      const mainWindow = allWindows.find((w) => w === win) || allWindows[0];
+      mainWindow.focus();
     } else {
       createWindow();
+      createControlPanel();
     }
   });
 });
@@ -166,11 +205,29 @@ app.on("before-quit", async () => {
     }
   }
 
+  // Cleanup control panel window (NEW)
+  if (controlPanelWindow && !controlPanelWindow.isDestroyed()) {
+    try {
+      controlPanelWindow.webContents.stop();
+      controlPanelWindow.webContents.removeAllListeners();
+      controlPanelWindow.webContents.close({ waitForBeforeUnload: false });
+      controlPanelWindow.webContents.forcefullyCrashRenderer();
+      controlPanelWindow.destroy();
+      logger.debug("Control panel window cleaned up successfully");
+    } catch (error) {
+      logger.error("Error cleaning up control panel window:", error);
+    }
+  }
+
+  // Cleanup main window (existing)
   if (win && !win.isDestroyed()) {
     win.destroy();
   }
+
+  // Reset all variables
   webView = null;
   win = null;
+  controlPanelWindow = null; // NEW
 });
 
 ipcMain.on("view:setBounds", (_, bounds: Rectangle) => {
