@@ -126,7 +126,7 @@ function createControlPanel() {
   // Load React app for control panel
   if (is.dev && ELECTRON_RENDERER_URL) {
     // Development: Use the control-panel specific URL
-    controlPanelWindow.loadURL(`${ELECTRON_RENDERER_URL}control-panel/`);
+    controlPanelWindow.loadURL(`${ELECTRON_RENDERER_URL}/control-panel/`);
   } else {
     // Production: Load from built files
     const controlPanelHtml = path.join(RENDERER_DIST, "control-panel/index.html");
