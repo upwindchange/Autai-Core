@@ -829,4 +829,11 @@ export class DOMService implements IDOMService {
   getPreviousState(): SerializedDOMState | undefined {
     return this.previousState;
   }
+
+  /**
+   * Get the DOMTreeSerializer instance for LLM representation generation
+   */
+  getSerializer(): DOMTreeSerializer {
+    return this.serializer;
+  }
 }

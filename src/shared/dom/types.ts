@@ -298,3 +298,20 @@ export interface SerializationMetrics {
     cacheHitRate: number;
   };
 }
+
+export interface IncrementalDetectionResult {
+  success: boolean;
+  hasChanges: boolean;
+  changeCount: number;
+  newElementsCount: number;
+  timestamp: number;
+  error?: string;
+}
+
+export interface LLMRepresentationResult {
+  success: boolean;
+  representation: string;
+  stats?: SerializationStats;
+  timestamp: number;
+  error?: string;
+}

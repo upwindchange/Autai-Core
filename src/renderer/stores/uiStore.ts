@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { Rectangle } from "electron";
 import type { ClickOptions, FillOptions, ClickResult, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult } from "@shared/dom/interaction";
+import type { IncrementalDetectionResult, LLMRepresentationResult } from "@shared/dom";
 
 interface UiState {
   // Container reference for resize observer
@@ -26,6 +27,13 @@ interface UiState {
   lastSelectResult: SelectOptionResult | null;
   lastHoverResult: HoverResult | null;
 
+  // Detection and LLM state
+  isDetectingChanges: boolean;
+  lastDetectionResult: IncrementalDetectionResult | null;
+  isGeneratingLLM: boolean;
+  lastLLMRepresentation: string | null;
+  llmGenerationError: string | null;
+
   // Actions
   setContainerRef: (ref: HTMLDivElement | null) => void;
   setContainerBounds: (bounds: Rectangle | null) => void;
@@ -41,6 +49,10 @@ interface UiState {
   fillElement: (backendNodeId: number, options: FillOptions) => Promise<FillResult>;
   selectElement: (backendNodeId: number, options: SelectOptionOptions) => Promise<SelectOptionResult>;
   hoverElement: (backendNodeId: number, options?: HoverOptions) => Promise<HoverResult>;
+
+  // Detection and LLM actions
+  detectChanges: () => Promise<IncrementalDetectionResult>;
+  generateLLMRepresentation: () => Promise<LLMRepresentationResult>;
 }
 
 export const useUiStore = create<UiState>()(
@@ -64,6 +76,13 @@ export const useUiStore = create<UiState>()(
     lastFillResult: null,
     lastSelectResult: null,
     lastHoverResult: null,
+
+    // Detection and LLM initial state
+    isDetectingChanges: false,
+    lastDetectionResult: null,
+    isGeneratingLLM: false,
+    lastLLMRepresentation: null,
+    llmGenerationError: null,
 
     // Actions
     setContainerRef: (ref) => set({ containerRef: ref }),
@@ -168,6 +187,60 @@ export const useUiStore = create<UiState>()(
         return errorResult;
       } finally {
         set({ isHovering: false });
+      }
+    },
+
+    // Detection and LLM actions
+    detectChanges: async (): Promise<IncrementalDetectionResult> => {
+      set({ isDetectingChanges: true, lastDetectionResult: null });
+      try {
+        if (!window.ipcRenderer) {
+          throw new Error("IPC Renderer not available");
+        }
+        const result = await window.ipcRenderer.invoke("dom:incrementalDetection") as IncrementalDetectionResult;
+        set({ lastDetectionResult: result });
+        return result;
+      } catch (error) {
+        const errorResult: IncrementalDetectionResult = {
+          success: false,
+          hasChanges: false,
+          changeCount: 0,
+          newElementsCount: 0,
+          timestamp: Date.now(),
+          error: error instanceof Error ? error.message : String(error)
+        };
+        set({ lastDetectionResult: errorResult });
+        return errorResult;
+      } finally {
+        set({ isDetectingChanges: false });
+      }
+    },
+
+    generateLLMRepresentation: async (): Promise<LLMRepresentationResult> => {
+      set({ isGeneratingLLM: true, lastLLMRepresentation: null, llmGenerationError: null });
+      try {
+        if (!window.ipcRenderer) {
+          throw new Error("IPC Renderer not available");
+        }
+        const result = await window.ipcRenderer.invoke("dom:getLLMRepresentation") as LLMRepresentationResult;
+        if (result.success) {
+          set({ lastLLMRepresentation: result.representation });
+        } else {
+          set({ llmGenerationError: result.error || "Unknown error occurred" });
+        }
+        return result;
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        set({ llmGenerationError: errorMessage });
+        const errorResult: LLMRepresentationResult = {
+          success: false,
+          representation: "",
+          timestamp: Date.now(),
+          error: errorMessage
+        };
+        return errorResult;
+      } finally {
+        set({ isGeneratingLLM: false });
       }
     },
   }))

@@ -10,7 +10,12 @@ import path from "node:path";
 import { is } from "@electron-toolkit/utils";
 import log from "electron-log/main";
 import { DOMService } from "./services/dom/DOMService";
-import type { SerializedDOMState, SerializationConfig } from "@shared/dom";
+import type {
+  SerializedDOMState,
+  SerializationConfig,
+  IncrementalDetectionResult,
+  LLMRepresentationResult
+} from "@shared/dom";
 import type {
   ClickOptions,
   FillOptions,
@@ -402,3 +407,79 @@ ipcMain.handle(
     }
   }
 );
+
+// Incremental Detection Handler
+ipcMain.handle("dom:incrementalDetection", async (): Promise<IncrementalDetectionResult> => {
+  if (!domService) {
+    throw new Error("DOMService not initialized");
+  }
+  try {
+    logger.info("IPC: Performing incremental DOM detection");
+
+    const previousState = domService.getPreviousState();
+    const result = await domService.getDOMTreeWithChangeDetection(previousState);
+
+    const detectionResult: IncrementalDetectionResult = {
+      success: true,
+      hasChanges: result.hasChanges,
+      changeCount: result.changeCount,
+      newElementsCount: result.serializedState?.stats?.newElements || 0,
+      timestamp: Date.now()
+    };
+
+    logger.info(
+      `IPC: Incremental detection complete - changes: ${detectionResult.hasChanges}, new elements: ${detectionResult.newElementsCount}`
+    );
+
+    return detectionResult;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`IPC: Failed to perform incremental detection: ${errorMessage}`);
+
+    return {
+      success: false,
+      hasChanges: false,
+      changeCount: 0,
+      newElementsCount: 0,
+      timestamp: Date.now(),
+      error: errorMessage
+    };
+  }
+});
+
+// LLM Representation Handler
+ipcMain.handle("dom:getLLMRepresentation", async (): Promise<LLMRepresentationResult> => {
+  if (!domService) {
+    throw new Error("DOMService not initialized");
+  }
+  try {
+    logger.info("IPC: Generating LLM representation");
+
+    const result = await domService.getSerializedDOMTree();
+    const llmRepresentation = await domService.getSerializer()
+      .generateLLMRepresentation(result.serializedState.root);
+
+    const llmResult: LLMRepresentationResult = {
+      success: true,
+      representation: llmRepresentation || "No LLM representation available",
+      stats: result.stats,
+      timestamp: Date.now()
+    };
+
+    logger.info(
+      `IPC: LLM representation generated - length: ${llmRepresentation?.length || 0} characters`
+    );
+
+    return llmResult;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error(`IPC: Failed to generate LLM representation: ${errorMessage}`);
+
+    return {
+      success: false,
+      representation: "",
+      timestamp: Date.now(),
+      error: errorMessage
+    };
+  }
+});

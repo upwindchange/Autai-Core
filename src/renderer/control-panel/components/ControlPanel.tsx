@@ -1,8 +1,8 @@
-import React from "react";
 import { useUiStore } from "@/stores/uiStore";
 
 function ControlPanel() {
   const {
+    // Existing DOM interaction state
     clickId,
     fillId,
     fillText,
@@ -27,6 +27,15 @@ function ControlPanel() {
     fillElement,
     selectElement,
     hoverElement,
+
+    // New detection and LLM state
+    isDetectingChanges,
+    lastDetectionResult,
+    isGeneratingLLM,
+    lastLLMRepresentation,
+    llmGenerationError,
+    detectChanges,
+    generateLLMRepresentation,
   } = useUiStore();
 
   // Event handlers
@@ -85,8 +94,97 @@ function ControlPanel() {
     await hoverElement(nodeId);
   };
 
+  // New event handlers
+  const handleDetectChanges = async () => {
+    try {
+      await detectChanges();
+    } catch (error) {
+      console.error("Failed to detect changes:", error);
+    }
+  };
+
+  const handleGenerateLLM = async () => {
+    try {
+      await generateLLMRepresentation();
+    } catch (error) {
+      console.error("Failed to generate LLM representation:", error);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {/* DOM Detection and Analysis Section */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h2 className="text-xl font-semibold text-gray-800 mb-4">
+          DOM Detection and Analysis
+        </h2>
+
+        <div className="grid grid-cols-1 gap-4">
+          {/* Incremental Detection */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <h3 className="text-lg font-medium text-gray-700 mb-3">
+              Re-detect Changes
+            </h3>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleDetectChanges}
+                disabled={isDetectingChanges}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {isDetectingChanges ? "detecting..." : "re-detect elements"}
+              </button>
+              {lastDetectionResult && (
+                <div className="text-sm text-gray-600">
+                  {lastDetectionResult.success
+                    ? lastDetectionResult.hasChanges
+                      ? `Found ${lastDetectionResult.newElementsCount} new elements`
+                      : "No changes detected"
+                    : "Detection failed"}
+                </div>
+              )}
+            </div>
+            {lastDetectionResult && !lastDetectionResult.success && lastDetectionResult.error && (
+              <div className="mt-2 text-sm text-red-600">
+                Error: {lastDetectionResult.error}
+              </div>
+            )}
+          </div>
+
+          {/* LLM Representation */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <h3 className="text-lg font-medium text-gray-700 mb-3">
+              LLM Representation
+            </h3>
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                onClick={handleGenerateLLM}
+                disabled={isGeneratingLLM}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {isGeneratingLLM ? "generating..." : "generate LLM view"}
+              </button>
+            </div>
+
+            {lastLLMRepresentation && (
+              <div className="mt-3">
+                <div className="text-sm font-medium text-gray-700 mb-2">
+                  DOM Tree Representation:
+                </div>
+                <div className="bg-gray-50 border border-gray-300 rounded p-3 max-h-96 overflow-y-auto font-mono text-sm">
+                  <pre className="whitespace-pre-wrap">{lastLLMRepresentation}</pre>
+                </div>
+              </div>
+            )}
+
+            {llmGenerationError && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 text-red-800 rounded">
+                Error: {llmGenerationError}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow-md p-6">
         <h2 className="text-xl font-semibold text-gray-800 mb-4">
           DOM Interactions

@@ -180,17 +180,6 @@ export class DOMTreeSerializer {
       await this.highlightInteractiveNodes(simplifiedRoot);
     }
     timings.highlighting = Date.now() - highlightingStart;
-
-    // Log LLM representation for debugging
-    try {
-      const llmRep = await this.generateLLMRepresentation(simplifiedRoot);
-      this.logger.debug("=== LLM DOM Representation ===");
-      this.logger.debug(llmRep);
-      this.logger.debug("=== End LLM DOM Representation ===");
-    } catch (error) {
-      this.logger.error("Failed to generate LLM representation:", error);
-    }
-
     timings.total = Date.now() - startTime;
 
     // Log final caching statistics
