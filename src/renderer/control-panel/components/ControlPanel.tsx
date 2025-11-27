@@ -28,6 +28,15 @@ function ControlPanel() {
     selectElement,
     hoverElement,
 
+    // Drag interaction state
+    dragSourceId,
+    dragTarget,
+    isDragging,
+    lastDragResult,
+    setDragSourceId,
+    setDragTarget,
+    dragElement,
+
     // New detection and LLM state
     isDetectingChanges,
     lastDetectionResult,
@@ -92,6 +101,47 @@ function ControlPanel() {
       return;
     }
     await hoverElement(nodeId);
+  };
+
+  const handleDrag = async () => {
+    const sourceNodeId = parseInt(dragSourceId.trim());
+    if (isNaN(sourceNodeId)) {
+      alert("Please enter a valid source element ID");
+      return;
+    }
+
+    if (!dragTarget.trim()) {
+      alert("Please enter a target (element ID or x,y coordinates)");
+      return;
+    }
+
+    // Parse target - check if it's coordinates or element ID
+    let targetOptions: { target: number | { x: number; y: number } };
+    const targetTrimmed = dragTarget.trim();
+
+    // Check if target is in "x,y" format
+    const coordinateMatch = targetTrimmed.match(/^(\d+),\s*(\d+)$/);
+    if (coordinateMatch) {
+      // Target is coordinates
+      targetOptions = {
+        target: {
+          x: parseInt(coordinateMatch[1]),
+          y: parseInt(coordinateMatch[2])
+        }
+      };
+    } else {
+      // Target is element ID
+      const targetNodeId = parseInt(targetTrimmed);
+      if (isNaN(targetNodeId)) {
+        alert("Target must be a valid element ID or x,y coordinates");
+        return;
+      }
+      targetOptions = {
+        target: targetNodeId
+      };
+    }
+
+    await dragElement(sourceNodeId, targetOptions);
   };
 
   // New event handlers
@@ -296,6 +346,60 @@ function ControlPanel() {
               </button>
             </div>
           </div>
+
+          {/* Drag Operation */}
+          <div className="border border-gray-200 rounded-lg p-4">
+            <h3 className="text-lg font-medium text-gray-700 mb-3">
+              Drag Element
+            </h3>
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                placeholder="Source ID"
+                value={dragSourceId}
+                onChange={(e) => setDragSourceId(e.target.value)}
+                className="w-24 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <input
+                type="text"
+                placeholder="Target (ID or x,y)"
+                value={dragTarget}
+                onChange={(e) => setDragTarget(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleDrag}
+                disabled={isDragging}
+                className="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              >
+                {isDragging ? "dragging..." : "drag"}
+              </button>
+            </div>
+            {lastDragResult && (
+              <div className="mt-3 p-3 bg-gray-100 rounded">
+                <div className="text-sm">
+                  <span className="font-medium">Status: </span>
+                  <span className={lastDragResult.success ? "text-green-600" : "text-red-600"}>
+                    {lastDragResult.success ? "Success" : "Failed"}
+                  </span>
+                </div>
+                {lastDragResult.error && (
+                  <div className="text-sm text-red-600 mt-1">
+                    <span className="font-medium">Error: </span>
+                    {lastDragResult.error}
+                  </div>
+                )}
+                {lastDragResult.sourceCoordinates && lastDragResult.targetCoordinates && (
+                  <div className="text-sm text-gray-600 mt-1">
+                    <span className="font-medium">From: </span>
+                    ({Math.round(lastDragResult.sourceCoordinates.x)}, {Math.round(lastDragResult.sourceCoordinates.y)})
+                    <span className="font-medium ml-2">To: </span>
+                    ({Math.round(lastDragResult.targetCoordinates.x)}, {Math.round(lastDragResult.targetCoordinates.y)})
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -415,10 +519,48 @@ function ControlPanel() {
             </div>
           )}
 
+          {lastDragResult && (
+            <div
+              className={`p-3 rounded-lg border ${
+                lastDragResult.success
+                  ? "bg-green-50 border-green-200 text-green-800"
+                  : "bg-red-50 border-red-200 text-red-800"
+              }`}
+            >
+              <div className="font-medium">
+                Drag: {lastDragResult.success ? "Success" : "Failed"}
+              </div>
+              {lastDragResult.error && (
+                <div className="text-sm mt-1">
+                  Error: {lastDragResult.error}
+                </div>
+              )}
+              {lastDragResult.sourceCoordinates && lastDragResult.targetCoordinates && (
+                <div className="text-sm mt-1">
+                  From: ({Math.round(lastDragResult.sourceCoordinates.x)},{" "}
+                  {Math.round(lastDragResult.sourceCoordinates.y)}) → To: (
+                  {Math.round(lastDragResult.targetCoordinates.x)},{" "}
+                  {Math.round(lastDragResult.targetCoordinates.y)})
+                </div>
+              )}
+              {lastDragResult.method && (
+                <div className="text-sm mt-1">
+                  Method: {lastDragResult.method}
+                </div>
+              )}
+              {lastDragResult.duration && (
+                <div className="text-sm mt-1">
+                  Duration: {lastDragResult.duration}ms
+                </div>
+              )}
+            </div>
+          )}
+
           {!lastClickResult &&
             !lastFillResult &&
             !lastSelectResult &&
-            !lastHoverResult && (
+            !lastHoverResult &&
+            !lastDragResult && (
               <div className="text-gray-500 text-center py-4">
                 No operations performed yet
               </div>

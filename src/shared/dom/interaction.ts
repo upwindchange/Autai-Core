@@ -291,3 +291,47 @@ export interface OptionElement {
 	 */
 	disabled: boolean;
 }
+
+export interface DragOptions {
+	/**
+	 * Target can be a Position or an Element backendNodeId
+	 */
+	target: Position | number;
+
+	/**
+	 * Optional relative position offset when target is an Element (default: center)
+	 */
+	targetPosition?: Position;
+}
+
+export interface DragResult {
+	/**
+	 * Whether the drag operation was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Error message if drag failed
+	 */
+	error?: string;
+
+	/**
+	 * Source coordinates where drag started
+	 */
+	sourceCoordinates?: Position;
+
+	/**
+	 * Target coordinates where drag ended
+	 */
+	targetCoordinates?: Position;
+
+	/**
+	 * Method used for coordinate resolution
+	 */
+	method?: 'contentQuads' | 'boxModel' | 'boundingRect' | 'javascript';
+
+	/**
+	 * Time taken for the entire drag operation in milliseconds
+	 */
+	duration?: number;
+}

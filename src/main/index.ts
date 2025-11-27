@@ -14,19 +14,20 @@ import type {
   SerializedDOMState,
   SerializationConfig,
   IncrementalDetectionResult,
-  LLMRepresentationResult
+  LLMRepresentationResult,
 } from "@shared/dom";
 import type {
   ClickOptions,
   FillOptions,
   SelectOptionOptions,
   HoverOptions,
+  DragOptions,
 } from "@shared/dom/interaction";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = log.scope("main");
 
-const DEFAULT_URL = "https://www.google.com";
+const DEFAULT_URL = "https://geodemo.graphics";
 
 process.env.APP_ROOT = path.join(__dirname, "../..");
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "out/main");
@@ -134,7 +135,10 @@ function createControlPanel() {
     controlPanelWindow.loadURL(`${ELECTRON_RENDERER_URL}/control-panel/`);
   } else {
     // Production: Load from built files
-    const controlPanelHtml = path.join(RENDERER_DIST, "control-panel/index.html");
+    const controlPanelHtml = path.join(
+      RENDERER_DIST,
+      "control-panel/index.html"
+    );
     controlPanelWindow.loadFile(controlPanelHtml);
   }
 
@@ -408,78 +412,120 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle(
+  "dom:dragElement",
+  async (_, sourceBackendNodeId: number, options: DragOptions) => {
+    if (!domService) {
+      throw new Error("DOMService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Dragging from element with backendNodeId: ${sourceBackendNodeId}`
+      );
+      const result = await domService.dragElement(sourceBackendNodeId, options);
+      logger.info(
+        `IPC: Element drag result: ${result.success ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to drag element with backendNodeId ${sourceBackendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
 // Incremental Detection Handler
-ipcMain.handle("dom:incrementalDetection", async (): Promise<IncrementalDetectionResult> => {
-  if (!domService) {
-    throw new Error("DOMService not initialized");
+ipcMain.handle(
+  "dom:incrementalDetection",
+  async (): Promise<IncrementalDetectionResult> => {
+    if (!domService) {
+      throw new Error("DOMService not initialized");
+    }
+    try {
+      logger.info("IPC: Performing incremental DOM detection");
+
+      const previousState = domService.getPreviousState();
+      const result = await domService.getDOMTreeWithChangeDetection(
+        previousState
+      );
+
+      const detectionResult: IncrementalDetectionResult = {
+        success: true,
+        hasChanges: result.hasChanges,
+        changeCount: result.changeCount,
+        newElementsCount: result.changeCount,
+        timestamp: Date.now(),
+      };
+
+      logger.info(
+        `IPC: Incremental detection complete - changes: ${detectionResult.hasChanges}, new elements: ${detectionResult.newElementsCount}`
+      );
+
+      return detectionResult;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(
+        `IPC: Failed to perform incremental detection: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        hasChanges: false,
+        changeCount: 0,
+        newElementsCount: 0,
+        timestamp: Date.now(),
+        error: errorMessage,
+      };
+    }
   }
-  try {
-    logger.info("IPC: Performing incremental DOM detection");
-
-    const previousState = domService.getPreviousState();
-    const result = await domService.getDOMTreeWithChangeDetection(previousState);
-
-    const detectionResult: IncrementalDetectionResult = {
-      success: true,
-      hasChanges: result.hasChanges,
-      changeCount: result.changeCount,
-      newElementsCount: result.changeCount,
-      timestamp: Date.now()
-    };
-
-    logger.info(
-      `IPC: Incremental detection complete - changes: ${detectionResult.hasChanges}, new elements: ${detectionResult.newElementsCount}`
-    );
-
-    return detectionResult;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(`IPC: Failed to perform incremental detection: ${errorMessage}`);
-
-    return {
-      success: false,
-      hasChanges: false,
-      changeCount: 0,
-      newElementsCount: 0,
-      timestamp: Date.now(),
-      error: errorMessage
-    };
-  }
-});
+);
 
 // LLM Representation Handler
-ipcMain.handle("dom:getLLMRepresentation", async (): Promise<LLMRepresentationResult> => {
-  if (!domService) {
-    throw new Error("DOMService not initialized");
+ipcMain.handle(
+  "dom:getLLMRepresentation",
+  async (): Promise<LLMRepresentationResult> => {
+    if (!domService) {
+      throw new Error("DOMService not initialized");
+    }
+    try {
+      logger.info("IPC: Generating LLM representation");
+
+      const result = await domService.getSerializedDOMTree();
+      const llmRepresentation = await domService
+        .getSerializer()
+        .generateLLMRepresentation(result.serializedState.root);
+
+      const llmResult: LLMRepresentationResult = {
+        success: true,
+        representation: llmRepresentation || "No LLM representation available",
+        stats: result.stats,
+        timestamp: Date.now(),
+      };
+
+      logger.info(
+        `IPC: LLM representation generated - length: ${
+          llmRepresentation?.length || 0
+        } characters`
+      );
+
+      return llmResult;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(
+        `IPC: Failed to generate LLM representation: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        representation: "",
+        timestamp: Date.now(),
+        error: errorMessage,
+      };
+    }
   }
-  try {
-    logger.info("IPC: Generating LLM representation");
-
-    const result = await domService.getSerializedDOMTree();
-    const llmRepresentation = await domService.getSerializer()
-      .generateLLMRepresentation(result.serializedState.root);
-
-    const llmResult: LLMRepresentationResult = {
-      success: true,
-      representation: llmRepresentation || "No LLM representation available",
-      stats: result.stats,
-      timestamp: Date.now()
-    };
-
-    logger.info(
-      `IPC: LLM representation generated - length: ${llmRepresentation?.length || 0} characters`
-    );
-
-    return llmResult;
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error(`IPC: Failed to generate LLM representation: ${errorMessage}`);
-
-    return {
-      success: false,
-      representation: "",
-      timestamp: Date.now(),
-      error: errorMessage
-    };
-  }
-});
+);

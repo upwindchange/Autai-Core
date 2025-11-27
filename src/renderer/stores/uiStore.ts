@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { Rectangle } from "electron";
-import type { ClickOptions, FillOptions, ClickResult, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult } from "@shared/dom/interaction";
+import type { ClickOptions, FillOptions, ClickResult, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult, DragOptions, DragResult } from "@shared/dom/interaction";
 import type { IncrementalDetectionResult, LLMRepresentationResult } from "@shared/dom";
 
 interface UiState {
@@ -18,14 +18,18 @@ interface UiState {
   selectId: string;
   selectValues: string;
   hoverId: string;
+  dragSourceId: string;
+  dragTarget: string;
   isClicking: boolean;
   isFilling: boolean;
   isSelecting: boolean;
   isHovering: boolean;
+  isDragging: boolean;
   lastClickResult: ClickResult | null;
   lastFillResult: FillResult | null;
   lastSelectResult: SelectOptionResult | null;
   lastHoverResult: HoverResult | null;
+  lastDragResult: DragResult | null;
 
   // Detection and LLM state
   isDetectingChanges: boolean;
@@ -45,10 +49,13 @@ interface UiState {
   setSelectId: (id: string) => void;
   setSelectValues: (values: string) => void;
   setHoverId: (id: string) => void;
+  setDragSourceId: (id: string) => void;
+  setDragTarget: (target: string) => void;
   clickElement: (backendNodeId: number, options?: ClickOptions) => Promise<ClickResult>;
   fillElement: (backendNodeId: number, options: FillOptions) => Promise<FillResult>;
   selectElement: (backendNodeId: number, options: SelectOptionOptions) => Promise<SelectOptionResult>;
   hoverElement: (backendNodeId: number, options?: HoverOptions) => Promise<HoverResult>;
+  dragElement: (sourceBackendNodeId: number, options: DragOptions) => Promise<DragResult>;
 
   // Detection and LLM actions
   detectChanges: () => Promise<IncrementalDetectionResult>;
@@ -68,14 +75,18 @@ export const useUiStore = create<UiState>()(
     selectId: "",
     selectValues: "",
     hoverId: "",
+    dragSourceId: "",
+    dragTarget: "",
     isClicking: false,
     isFilling: false,
     isSelecting: false,
     isHovering: false,
+    isDragging: false,
     lastClickResult: null,
     lastFillResult: null,
     lastSelectResult: null,
     lastHoverResult: null,
+    lastDragResult: null,
 
     // Detection and LLM initial state
     isDetectingChanges: false,
@@ -105,6 +116,8 @@ export const useUiStore = create<UiState>()(
     setSelectId: (id) => set({ selectId: id }),
     setSelectValues: (values) => set({ selectValues: values }),
     setHoverId: (id) => set({ hoverId: id }),
+    setDragSourceId: (id) => set({ dragSourceId: id }),
+    setDragTarget: (target) => set({ dragTarget: target }),
 
     clickElement: async (backendNodeId: number, options?: ClickOptions): Promise<ClickResult> => {
       set({ isClicking: true });
@@ -187,6 +200,27 @@ export const useUiStore = create<UiState>()(
         return errorResult;
       } finally {
         set({ isHovering: false });
+      }
+    },
+
+    dragElement: async (sourceBackendNodeId: number, options: DragOptions): Promise<DragResult> => {
+      set({ isDragging: true });
+      try {
+        if (!window.ipcRenderer) {
+          throw new Error("IPC Renderer not available");
+        }
+        const result = await window.ipcRenderer.invoke("dom:dragElement", sourceBackendNodeId, options) as DragResult;
+        set({ lastDragResult: result });
+        return result;
+      } catch (error) {
+        const errorResult: DragResult = {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+        set({ lastDragResult: errorResult });
+        return errorResult;
+      } finally {
+        set({ isDragging: false });
       }
     },
 

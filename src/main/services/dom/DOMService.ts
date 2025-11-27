@@ -17,7 +17,7 @@ import type {
   EnhancedSnapshotNode,
   BoundsObject,
 } from "@shared/dom";
-import type { ClickOptions, ClickResult, FillOptions, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult } from "@shared/dom/interaction";
+import type { ClickOptions, ClickResult, FillOptions, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult, DragOptions, DragResult } from "@shared/dom/interaction";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 import {
   sendCDPCommand,
@@ -688,6 +688,62 @@ export class DOMService implements IDOMService {
         `Failed to get bounding box for backendNodeId ${backendNodeId}: ${errorMessage}`
       );
       return null;
+    }
+  }
+
+  /**
+   * Drag from source element to target position or element
+   */
+  async dragElement(
+    sourceBackendNodeId: number,
+    options: DragOptions
+  ): Promise<DragResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug(
+        `Dragging from element with backendNodeId: ${sourceBackendNodeId}`,
+        {
+          sourceBackendNodeId,
+          options,
+        }
+      );
+
+      const result = await this.elementInteraction.dragToElement(
+        sourceBackendNodeId,
+        options
+      );
+
+      if (result.success) {
+        this.logger.info(`Drag operation completed successfully`, {
+          sourceBackendNodeId,
+          sourceCoordinates: result.sourceCoordinates,
+          targetCoordinates: result.targetCoordinates,
+          method: result.method,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to drag element`, {
+          sourceBackendNodeId,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Drag operation failed for backendNodeId ${sourceBackendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
     }
   }
 

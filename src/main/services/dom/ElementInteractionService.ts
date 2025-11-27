@@ -22,6 +22,8 @@ import type {
   OptionElement,
   HoverOptions,
   HoverResult,
+  DragOptions,
+  DragResult,
 } from "../../../shared/dom/interaction";
 import { sendCDPCommand } from "./utils/DOMUtils";
 import type { LogFunctions } from "electron-log";
@@ -63,44 +65,47 @@ export class ElementInteractionService {
    */
   private getCharInfo(char: string): CharInfo | null {
     // Characters that require Shift modifier
-    const shiftChars: Record<string, { baseKey: string; vkCode: number; keyCode: string }> = {
-      '!': { baseKey: '1', vkCode: 49, keyCode: 'Digit1' },
-      '@': { baseKey: '2', vkCode: 50, keyCode: 'Digit2' },
-      '#': { baseKey: '3', vkCode: 51, keyCode: 'Digit3' },
-      '$': { baseKey: '4', vkCode: 52, keyCode: 'Digit4' },
-      '%': { baseKey: '5', vkCode: 53, keyCode: 'Digit5' },
-      '^': { baseKey: '6', vkCode: 54, keyCode: 'Digit6' },
-      '&': { baseKey: '7', vkCode: 55, keyCode: 'Digit7' },
-      '*': { baseKey: '8', vkCode: 56, keyCode: 'Digit8' },
-      '(': { baseKey: '9', vkCode: 57, keyCode: 'Digit9' },
-      ')': { baseKey: '0', vkCode: 48, keyCode: 'Digit0' },
-      '_': { baseKey: '-', vkCode: 189, keyCode: 'Minus' },
-      '+': { baseKey: '=', vkCode: 187, keyCode: 'Equal' },
-      '{': { baseKey: '[', vkCode: 219, keyCode: 'BracketLeft' },
-      '}': { baseKey: ']', vkCode: 221, keyCode: 'BracketRight' },
-      '|': { baseKey: '\\', vkCode: 220, keyCode: 'Backslash' },
-      ':': { baseKey: ';', vkCode: 186, keyCode: 'Semicolon' },
-      '"': { baseKey: "'", vkCode: 222, keyCode: 'Quote' },
-      '<': { baseKey: ',', vkCode: 188, keyCode: 'Comma' },
-      '>': { baseKey: '.', vkCode: 190, keyCode: 'Period' },
-      '?': { baseKey: '/', vkCode: 191, keyCode: 'Slash' },
-      '~': { baseKey: '`', vkCode: 192, keyCode: 'Backquote' },
+    const shiftChars: Record<
+      string,
+      { baseKey: string; vkCode: number; keyCode: string }
+    > = {
+      "!": { baseKey: "1", vkCode: 49, keyCode: "Digit1" },
+      "@": { baseKey: "2", vkCode: 50, keyCode: "Digit2" },
+      "#": { baseKey: "3", vkCode: 51, keyCode: "Digit3" },
+      $: { baseKey: "4", vkCode: 52, keyCode: "Digit4" },
+      "%": { baseKey: "5", vkCode: 53, keyCode: "Digit5" },
+      "^": { baseKey: "6", vkCode: 54, keyCode: "Digit6" },
+      "&": { baseKey: "7", vkCode: 55, keyCode: "Digit7" },
+      "*": { baseKey: "8", vkCode: 56, keyCode: "Digit8" },
+      "(": { baseKey: "9", vkCode: 57, keyCode: "Digit9" },
+      ")": { baseKey: "0", vkCode: 48, keyCode: "Digit0" },
+      _: { baseKey: "-", vkCode: 189, keyCode: "Minus" },
+      "+": { baseKey: "=", vkCode: 187, keyCode: "Equal" },
+      "{": { baseKey: "[", vkCode: 219, keyCode: "BracketLeft" },
+      "}": { baseKey: "]", vkCode: 221, keyCode: "BracketRight" },
+      "|": { baseKey: "\\", vkCode: 220, keyCode: "Backslash" },
+      ":": { baseKey: ";", vkCode: 186, keyCode: "Semicolon" },
+      '"': { baseKey: "'", vkCode: 222, keyCode: "Quote" },
+      "<": { baseKey: ",", vkCode: 188, keyCode: "Comma" },
+      ">": { baseKey: ".", vkCode: 190, keyCode: "Period" },
+      "?": { baseKey: "/", vkCode: 191, keyCode: "Slash" },
+      "~": { baseKey: "`", vkCode: 192, keyCode: "Backquote" },
     };
 
     // Special characters without Shift
     const noShiftChars: Record<string, { vkCode: number; keyCode: string }> = {
-      ' ': { vkCode: 32, keyCode: 'Space' },
-      '-': { vkCode: 189, keyCode: 'Minus' },
-      '=': { vkCode: 187, keyCode: 'Equal' },
-      '[': { vkCode: 219, keyCode: 'BracketLeft' },
-      ']': { vkCode: 221, keyCode: 'BracketRight' },
-      '\\': { vkCode: 220, keyCode: 'Backslash' },
-      ';': { vkCode: 186, keyCode: 'Semicolon' },
-      "'": { vkCode: 222, keyCode: 'Quote' },
-      ',': { vkCode: 188, keyCode: 'Comma' },
-      '.': { vkCode: 190, keyCode: 'Period' },
-      '/': { vkCode: 191, keyCode: 'Slash' },
-      '`': { vkCode: 192, keyCode: 'Backquote' },
+      " ": { vkCode: 32, keyCode: "Space" },
+      "-": { vkCode: 189, keyCode: "Minus" },
+      "=": { vkCode: 187, keyCode: "Equal" },
+      "[": { vkCode: 219, keyCode: "BracketLeft" },
+      "]": { vkCode: 221, keyCode: "BracketRight" },
+      "\\": { vkCode: 220, keyCode: "Backslash" },
+      ";": { vkCode: 186, keyCode: "Semicolon" },
+      "'": { vkCode: 222, keyCode: "Quote" },
+      ",": { vkCode: 188, keyCode: "Comma" },
+      ".": { vkCode: 190, keyCode: "Period" },
+      "/": { vkCode: 191, keyCode: "Slash" },
+      "`": { vkCode: 192, keyCode: "Backquote" },
     };
 
     // Check if character requires Shift
@@ -115,7 +120,7 @@ export class ElementInteractionService {
     }
 
     // Uppercase letters require Shift
-    if (char >= 'A' && char <= 'Z') {
+    if (char >= "A" && char <= "Z") {
       return {
         modifiers: 8, // Shift modifier
         vkCode: char.charCodeAt(0),
@@ -125,7 +130,7 @@ export class ElementInteractionService {
     }
 
     // Lowercase letters
-    if (char >= 'a' && char <= 'z') {
+    if (char >= "a" && char <= "z") {
       return {
         modifiers: 0,
         vkCode: char.toUpperCase().charCodeAt(0),
@@ -135,7 +140,7 @@ export class ElementInteractionService {
     }
 
     // Numbers
-    if (char >= '0' && char <= '9') {
+    if (char >= "0" && char <= "9") {
       return {
         modifiers: 0,
         vkCode: char.charCodeAt(0),
@@ -169,14 +174,14 @@ export class ElementInteractionService {
   ): Promise<boolean> {
     try {
       // Strategy 1: CDP focus (most reliable)
-      this.logger.debug('Focusing element using CDP focus');
+      this.logger.debug("Focusing element using CDP focus");
       await sendCDPCommand(
         this.webContents,
-        'DOM.focus',
+        "DOM.focus",
         { backendNodeId },
         this.logger
       );
-      this.logger.debug('Element focused successfully using CDP focus');
+      this.logger.debug("Element focused successfully using CDP focus");
       return true;
     } catch (error) {
       this.logger.debug(`CDP focus failed: ${error}, trying JavaScript focus`);
@@ -185,40 +190,45 @@ export class ElementInteractionService {
     // Strategy 2: JavaScript focus (fallback)
     if (objectId) {
       try {
-        this.logger.debug('Focusing element using JavaScript focus');
+        this.logger.debug("Focusing element using JavaScript focus");
         await sendCDPCommand(
           this.webContents,
-          'Runtime.callFunctionOn',
+          "Runtime.callFunctionOn",
           {
-            functionDeclaration: 'function() { this.focus(); }',
+            functionDeclaration: "function() { this.focus(); }",
             objectId,
           },
           this.logger
         );
-        this.logger.debug('Element focused successfully using JavaScript');
+        this.logger.debug("Element focused successfully using JavaScript");
         return true;
       } catch (error) {
-        this.logger.debug(`JavaScript focus failed: ${error}, trying click focus`);
+        this.logger.debug(
+          `JavaScript focus failed: ${error}, trying click focus`
+        );
       }
     }
 
     // Strategy 3: Click to focus (last resort)
     try {
-      this.logger.debug('Focusing element by clicking at element center');
+      this.logger.debug("Focusing element by clicking at element center");
 
       // Get element coordinates for click
       const viewport = await this.getViewportInfo();
-      const { coordinates } = await this.getElementCoordinates(backendNodeId, viewport);
+      const { coordinates } = await this.getElementCoordinates(
+        backendNodeId,
+        viewport
+      );
 
       // Click on the element to focus it
       await sendCDPCommand(
         this.webContents,
-        'Input.dispatchMouseEvent',
+        "Input.dispatchMouseEvent",
         {
-          type: 'mousePressed',
+          type: "mousePressed",
           x: coordinates.x,
           y: coordinates.y,
-          button: 'left',
+          button: "left",
           clickCount: 1,
         },
         this.logger
@@ -228,18 +238,18 @@ export class ElementInteractionService {
 
       await sendCDPCommand(
         this.webContents,
-        'Input.dispatchMouseEvent',
+        "Input.dispatchMouseEvent",
         {
-          type: 'mouseReleased',
+          type: "mouseReleased",
           x: coordinates.x,
           y: coordinates.y,
-          button: 'left',
+          button: "left",
           clickCount: 1,
         },
         this.logger
       );
 
-      this.logger.debug('Element focused using click');
+      this.logger.debug("Element focused using click");
       return true;
     } catch (error) {
       this.logger.warn(`All focus strategies failed: ${error}`);
@@ -254,13 +264,14 @@ export class ElementInteractionService {
   private async clearTextField(objectId: string): Promise<boolean> {
     try {
       // Strategy 1: Direct JavaScript value setting (most reliable for modern web apps)
-      this.logger.debug('Clearing text field using JavaScript value setting');
+      this.logger.debug("Clearing text field using JavaScript value setting");
 
-      const clearResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
-        this.webContents,
-        'Runtime.callFunctionOn',
-        {
-          functionDeclaration: `
+      const clearResult: CDP.Runtime.CallFunctionOnResponse =
+        await sendCDPCommand(
+          this.webContents,
+          "Runtime.callFunctionOn",
+          {
+            functionDeclaration: `
             function() {
               // Try to select all text first (only works on text-like inputs)
               // This handles cases where cursor is in the middle of text
@@ -278,19 +289,21 @@ export class ElementInteractionService {
               return this.value;
             }
           `,
-          objectId,
-          returnByValue: true,
-        },
-        this.logger
-      );
+            objectId,
+            returnByValue: true,
+          },
+          this.logger
+        );
 
       // Verify clearing worked by checking the value
-      if (clearResult.result && clearResult.result.value === '') {
-        this.logger.debug('Text field cleared successfully using JavaScript');
+      if (clearResult.result && clearResult.result.value === "") {
+        this.logger.debug("Text field cleared successfully using JavaScript");
         return true;
       } else {
-        const currentValue = clearResult.result?.value || '';
-        this.logger.debug(`JavaScript clear partially failed, field still contains: "${currentValue}"`);
+        const currentValue = clearResult.result?.value || "";
+        this.logger.debug(
+          `JavaScript clear partially failed, field still contains: "${currentValue}"`
+        );
       }
     } catch (error) {
       this.logger.debug(`JavaScript clear failed: ${error}`);
@@ -298,19 +311,21 @@ export class ElementInteractionService {
 
     // Strategy 2: Triple-click + Delete (fallback for stubborn fields)
     try {
-      this.logger.debug('Fallback: Clearing using triple-click + Delete');
+      this.logger.debug("Fallback: Clearing using triple-click + Delete");
 
       // Get element coordinates for triple-click
-      const boundsResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
-        this.webContents,
-        'Runtime.callFunctionOn',
-        {
-          functionDeclaration: 'function() { return this.getBoundingClientRect(); }',
-          objectId,
-          returnByValue: true,
-        },
-        this.logger
-      );
+      const boundsResult: CDP.Runtime.CallFunctionOnResponse =
+        await sendCDPCommand(
+          this.webContents,
+          "Runtime.callFunctionOn",
+          {
+            functionDeclaration:
+              "function() { return this.getBoundingClientRect(); }",
+            objectId,
+            returnByValue: true,
+          },
+          this.logger
+        );
 
       if (boundsResult.result && boundsResult.result.value) {
         const rect = boundsResult.result.value;
@@ -320,12 +335,12 @@ export class ElementInteractionService {
         // Triple-click to select all text
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchMouseEvent',
+          "Input.dispatchMouseEvent",
           {
-            type: 'mousePressed',
+            type: "mousePressed",
             x: centerX,
             y: centerY,
-            button: 'left',
+            button: "left",
             clickCount: 3,
           },
           this.logger
@@ -333,12 +348,12 @@ export class ElementInteractionService {
 
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchMouseEvent',
+          "Input.dispatchMouseEvent",
           {
-            type: 'mouseReleased',
+            type: "mouseReleased",
             x: centerX,
             y: centerY,
-            button: 'left',
+            button: "left",
             clickCount: 3,
           },
           this.logger
@@ -347,27 +362,27 @@ export class ElementInteractionService {
         // Delete selected text
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'keyDown',
-            key: 'Delete',
-            code: 'Delete',
+            type: "keyDown",
+            key: "Delete",
+            code: "Delete",
           },
           this.logger
         );
 
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'keyUp',
-            key: 'Delete',
-            code: 'Delete',
+            type: "keyUp",
+            key: "Delete",
+            code: "Delete",
           },
           this.logger
         );
 
-        this.logger.debug('Text field cleared using triple-click + Delete');
+        this.logger.debug("Text field cleared using triple-click + Delete");
         return true;
       }
     } catch (error) {
@@ -375,7 +390,7 @@ export class ElementInteractionService {
     }
 
     // If all strategies failed
-    this.logger.warn('All text clearing strategies failed');
+    this.logger.warn("All text clearing strategies failed");
     return false;
   }
 
@@ -393,15 +408,15 @@ export class ElementInteractionService {
       const char = text[i];
 
       // Handle newline characters as Enter key
-      if (char === '\n') {
+      if (char === "\n") {
         // Send proper Enter key sequence
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'keyDown',
-            key: 'Enter',
-            code: 'Enter',
+            type: "keyDown",
+            key: "Enter",
+            code: "Enter",
             windowsVirtualKeyCode: 13,
           },
           this.logger
@@ -413,11 +428,11 @@ export class ElementInteractionService {
         // Send char event with carriage return
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'char',
-            text: '\r',
-            key: 'Enter',
+            type: "char",
+            text: "\r",
+            key: "Enter",
           },
           this.logger
         );
@@ -425,11 +440,11 @@ export class ElementInteractionService {
         // Send keyUp event
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'keyUp',
-            key: 'Enter',
-            code: 'Enter',
+            type: "keyUp",
+            key: "Enter",
+            code: "Enter",
             windowsVirtualKeyCode: 13,
           },
           this.logger
@@ -440,15 +455,17 @@ export class ElementInteractionService {
 
         // Check if character can be typed via keyboard simulation
         if (charInfo === null) {
-          throw new Error(`Character '${char}' cannot be typed via keyboard simulation, requires JavaScript fallback`);
+          throw new Error(
+            `Character '${char}' cannot be typed via keyboard simulation, requires JavaScript fallback`
+          );
         }
 
         // Step 1: Send keyDown event (NO text parameter)
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'keyDown',
+            type: "keyDown",
             key: charInfo.baseKey,
             code: charInfo.keyCode,
             modifiers: charInfo.modifiers,
@@ -463,9 +480,9 @@ export class ElementInteractionService {
         // Step 2: Send char event (WITH text parameter) - this is crucial for text input
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'char',
+            type: "char",
             text: char,
             key: char,
           },
@@ -475,9 +492,9 @@ export class ElementInteractionService {
         // Step 3: Send keyUp event (NO text parameter)
         await sendCDPCommand(
           this.webContents,
-          'Input.dispatchKeyEvent',
+          "Input.dispatchKeyEvent",
           {
-            type: 'keyUp',
+            type: "keyUp",
             key: charInfo.baseKey,
             code: charInfo.keyCode,
             modifiers: charInfo.modifiers,
@@ -529,12 +546,13 @@ export class ElementInteractionService {
   }> {
     // Method 1: Try DOM.getContentQuads first (best for inline elements and complex layouts)
     try {
-      const contentQuadsResult: CDP.DOM.GetContentQuadsResponse = await sendCDPCommand(
-        this.webContents,
-        "DOM.getContentQuads",
-        { backendNodeId },
-        this.logger
-      );
+      const contentQuadsResult: CDP.DOM.GetContentQuadsResponse =
+        await sendCDPCommand(
+          this.webContents,
+          "DOM.getContentQuads",
+          { backendNodeId },
+          this.logger
+        );
 
       if (contentQuadsResult.quads && contentQuadsResult.quads.length > 0) {
         const quads = contentQuadsResult.quads;
@@ -633,11 +651,12 @@ export class ElementInteractionService {
       );
 
       if (resolveResult.object && resolveResult.object.objectId) {
-        const boundsResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
-          this.webContents,
-          "Runtime.callFunctionOn",
-          {
-            functionDeclaration: `
+        const boundsResult: CDP.Runtime.CallFunctionOnResponse =
+          await sendCDPCommand(
+            this.webContents,
+            "Runtime.callFunctionOn",
+            {
+              functionDeclaration: `
 						function() {
 							const rect = this.getBoundingClientRect();
 							return {
@@ -648,11 +667,11 @@ export class ElementInteractionService {
 							};
 						}
 					`,
-            objectId: resolveResult.object.objectId,
-            returnByValue: true,
-          },
-          this.logger
-        );
+              objectId: resolveResult.object.objectId,
+              returnByValue: true,
+            },
+            this.logger
+          );
 
         if (boundsResult.result && boundsResult.result.value) {
           const rect = boundsResult.result.value;
@@ -761,41 +780,35 @@ export class ElementInteractionService {
         await this.sleep(50);
 
         // Mouse down with timeout
-        await Promise.race([
-          sendCDPCommand(
-            this.webContents,
-            "Input.dispatchMouseEvent",
-            {
-              type: "mousePressed",
-              x: clickX,
-              y: clickY,
-              button: mouseButton,
-              clickCount,
-              modifiers: modifierValue,
-            },
-            this.logger
-          ),
-          this.sleep(1000), // 1 second timeout for mousePressed
-        ]);
+        sendCDPCommand(
+          this.webContents,
+          "Input.dispatchMouseEvent",
+          {
+            type: "mousePressed",
+            x: clickX,
+            y: clickY,
+            button: mouseButton,
+            clickCount,
+            modifiers: modifierValue,
+          },
+          this.logger
+        );
         await this.sleep(80);
 
         // Mouse up with timeout
-        await Promise.race([
-          sendCDPCommand(
-            this.webContents,
-            "Input.dispatchMouseEvent",
-            {
-              type: "mouseReleased",
-              x: clickX,
-              y: clickY,
-              button: mouseButton,
-              clickCount,
-              modifiers: modifierValue,
-            },
-            this.logger
-          ),
-          this.sleep(3000), // 3 second timeout for mouseReleased
-        ]);
+        sendCDPCommand(
+          this.webContents,
+          "Input.dispatchMouseEvent",
+          {
+            type: "mouseReleased",
+            x: clickX,
+            y: clickY,
+            button: mouseButton,
+            clickCount,
+            modifiers: modifierValue,
+          },
+          this.logger
+        );
 
         return {
           success: true,
@@ -806,12 +819,13 @@ export class ElementInteractionService {
       } catch (cdpError) {
         // Fall back to JavaScript click if CDP fails
         try {
-          const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
-            this.webContents,
-            "DOM.resolveNode",
-            { backendNodeId },
-            this.logger
-          );
+          const resolveResult: CDP.DOM.ResolveNodeResponse =
+            await sendCDPCommand(
+              this.webContents,
+              "DOM.resolveNode",
+              { backendNodeId },
+              this.logger
+            );
 
           if (resolveResult.object && resolveResult.object.objectId) {
             await sendCDPCommand(
@@ -863,11 +877,7 @@ export class ElementInteractionService {
     options: FillOptions
   ): Promise<FillResult> {
     const startTime = Date.now();
-    const {
-      value,
-      clear: shouldClear = true,
-      keystrokeDelay = 18,
-    } = options;
+    const { value, clear: shouldClear = true, keystrokeDelay = 18 } = options;
 
     try {
       this.logger.debug(
@@ -884,7 +894,7 @@ export class ElementInteractionService {
       try {
         await sendCDPCommand(
           this.webContents,
-          'DOM.scrollIntoViewIfNeeded',
+          "DOM.scrollIntoViewIfNeeded",
           { backendNodeId },
           this.logger
         );
@@ -896,28 +906,33 @@ export class ElementInteractionService {
       // Step 2: Get object ID for the element
       const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
         this.webContents,
-        'DOM.resolveNode',
+        "DOM.resolveNode",
         { backendNodeId },
         this.logger
       );
 
       if (!resolveResult.object || !resolveResult.object.objectId) {
-        throw new Error('Failed to get object ID for element');
+        throw new Error("Failed to get object ID for element");
       }
 
       const objectId = resolveResult.object.objectId;
 
       // Step 3: Focus the element
-      const focusedSuccessfully = await this.focusElement(backendNodeId, objectId);
+      const focusedSuccessfully = await this.focusElement(
+        backendNodeId,
+        objectId
+      );
       if (!focusedSuccessfully) {
-        this.logger.warn('Element focus failed, typing may not work correctly');
+        this.logger.warn("Element focus failed, typing may not work correctly");
       }
 
       // Step 4: Clear existing text if requested
       if (shouldClear) {
         const clearedSuccessfully = await this.clearTextField(objectId);
         if (!clearedSuccessfully) {
-          this.logger.warn('Text field clearing failed, typing may append to existing text');
+          this.logger.warn(
+            "Text field clearing failed, typing may append to existing text"
+          );
         }
       }
 
@@ -927,17 +942,19 @@ export class ElementInteractionService {
       return {
         success: true,
         charactersTyped: value.length,
-        method: 'cdp',
+        method: "cdp",
         duration: Date.now() - startTime,
       };
     } catch (error) {
       // Fall back to JavaScript value setting if CDP typing fails
       try {
-        this.logger.debug(`CDP typing failed: ${error}, trying JavaScript fallback`);
+        this.logger.debug(
+          `CDP typing failed: ${error}, trying JavaScript fallback`
+        );
 
         const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
           this.webContents,
-          'DOM.resolveNode',
+          "DOM.resolveNode",
           { backendNodeId },
           this.logger
         );
@@ -945,7 +962,7 @@ export class ElementInteractionService {
         if (resolveResult.object && resolveResult.object.objectId) {
           await sendCDPCommand(
             this.webContents,
-            'Runtime.callFunctionOn',
+            "Runtime.callFunctionOn",
             {
               functionDeclaration: `
                 function(text) {
@@ -967,11 +984,11 @@ export class ElementInteractionService {
           return {
             success: true,
             charactersTyped: value.length,
-            method: 'javascript',
+            method: "javascript",
             duration: Date.now() - startTime,
           };
         } else {
-          throw new Error('Failed to resolve DOM node for JavaScript fill');
+          throw new Error("Failed to resolve DOM node for JavaScript fill");
         }
       } catch (jsError) {
         return {
@@ -992,11 +1009,7 @@ export class ElementInteractionService {
     options: SelectOptionOptions
   ): Promise<SelectOptionResult> {
     const startTime = Date.now();
-    const {
-      values,
-      clear: shouldClear = true,
-      timeout = 5000,
-    } = options;
+    const { values, clear: shouldClear = true, timeout = 5000 } = options;
 
     try {
       this.logger.debug(
@@ -1015,7 +1028,7 @@ export class ElementInteractionService {
       // Step 1: Scroll element into view and focus
       await sendCDPCommand(
         this.webContents,
-        'DOM.scrollIntoViewIfNeeded',
+        "DOM.scrollIntoViewIfNeeded",
         { backendNodeId },
         this.logger
       );
@@ -1024,13 +1037,17 @@ export class ElementInteractionService {
       // Focus the select element
       const focusedSuccessfully = await this.focusElement(backendNodeId);
       if (!focusedSuccessfully) {
-        this.logger.warn('Element focus failed, selection may not work correctly');
+        this.logger.warn(
+          "Element focus failed, selection may not work correctly"
+        );
       }
 
       // Step 2: Get all options from the select element
-      const availableOptions = await this.getOptionsFromSelectElement(backendNodeId);
+      const availableOptions = await this.getOptionsFromSelectElement(
+        backendNodeId
+      );
       if (!availableOptions.length) {
-        throw new Error('No options found in select element');
+        throw new Error("No options found in select element");
       }
 
       // Step 3: Check if it's a multi-select element
@@ -1040,17 +1057,19 @@ export class ElementInteractionService {
       const targetValues = isMultiSelect ? valuesToSelect : [valuesToSelect[0]];
 
       // Step 4: Find matching options
-      const matchingOptions = availableOptions.filter(option =>
-        this.matchesOption(option, targetValues) && !option.disabled
+      const matchingOptions = availableOptions.filter(
+        (option) => this.matchesOption(option, targetValues) && !option.disabled
       );
 
       if (!matchingOptions.length) {
-        throw new Error(`No matching options found for values: ${targetValues.join(', ')}`);
+        throw new Error(
+          `No matching options found for values: ${targetValues.join(", ")}`
+        );
       }
 
       // Step 5: Select the matching options
       const selectedOptions: string[] = [];
-      let selectionMethod: 'cdp' | 'javascript' = 'cdp';
+      let selectionMethod: "cdp" | "javascript" = "cdp";
 
       for (const option of matchingOptions) {
         try {
@@ -1060,23 +1079,31 @@ export class ElementInteractionService {
             selectedOptions.push(option.value);
             this.logger.debug(`Successfully selected option: ${option.value}`);
           } else {
-            throw new Error(clickResult.error || 'Click failed');
+            throw new Error(clickResult.error || "Click failed");
           }
         } catch (clickError) {
-          this.logger.debug(`CDP click failed for option ${option.value}: ${clickError}, trying JavaScript`);
+          this.logger.debug(
+            `CDP click failed for option ${option.value}: ${clickError}, trying JavaScript`
+          );
 
           // Fallback to JavaScript selection
           try {
-            const jsSuccess = await this.selectOptionByJavaScript(option.backendNodeId);
+            const jsSuccess = await this.selectOptionByJavaScript(
+              option.backendNodeId
+            );
             if (jsSuccess) {
               selectedOptions.push(option.value);
-              selectionMethod = 'javascript';
-              this.logger.debug(`Successfully selected option using JavaScript: ${option.value}`);
+              selectionMethod = "javascript";
+              this.logger.debug(
+                `Successfully selected option using JavaScript: ${option.value}`
+              );
             } else {
-              throw new Error('JavaScript selection failed');
+              throw new Error("JavaScript selection failed");
             }
           } catch (jsError) {
-            this.logger.warn(`Failed to select option ${option.value}: CDP=${clickError}, JS=${jsError}`);
+            this.logger.warn(
+              `Failed to select option ${option.value}: CDP=${clickError}, JS=${jsError}`
+            );
           }
         }
 
@@ -1106,27 +1133,29 @@ export class ElementInteractionService {
   /**
    * Get all option elements from a select element
    */
-  private async getOptionsFromSelectElement(backendNodeId: number): Promise<OptionElement[]> {
+  private async getOptionsFromSelectElement(
+    backendNodeId: number
+  ): Promise<OptionElement[]> {
     const options: OptionElement[] = [];
 
     try {
       // Get node ID from backend node ID
       const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
         this.webContents,
-        'DOM.resolveNode',
+        "DOM.resolveNode",
         { backendNodeId },
         this.logger
       );
 
       if (!resolveResult.object || !resolveResult.object.objectId) {
-        throw new Error('Failed to resolve select element');
+        throw new Error("Failed to resolve select element");
       }
 
       // Request child nodes to get options
       const nodeId = await this.getNodeIdFromBackendNodeId(backendNodeId);
       await sendCDPCommand(
         this.webContents,
-        'DOM.requestChildNodes',
+        "DOM.requestChildNodes",
         { nodeId, depth: 1 },
         this.logger
       );
@@ -1134,7 +1163,7 @@ export class ElementInteractionService {
       // Get the updated node description with children
       const describeResult: CDP.DOM.DescribeNodeResponse = await sendCDPCommand(
         this.webContents,
-        'DOM.describeNode',
+        "DOM.describeNode",
         { nodeId, depth: 1 },
         this.logger
       );
@@ -1143,7 +1172,7 @@ export class ElementInteractionService {
 
       // Find and process option elements
       for (const child of selectNode.children || []) {
-        if (child.nodeName?.toLowerCase() === 'option') {
+        if (child.nodeName?.toLowerCase() === "option") {
           const optionBackendId = child.backendNodeId;
           if (!optionBackendId) continue;
 
@@ -1160,10 +1189,14 @@ export class ElementInteractionService {
           // Extract option information
           const option: OptionElement = {
             backendNodeId: optionBackendId,
-            value: optionAttrs.value || '',
-            text: child.nodeValue || '',
-            selected: optionAttrs.selected === 'selected' || optionAttrs.selected === '',
-            disabled: optionAttrs.disabled === 'disabled' || optionAttrs.disabled === '',
+            value: optionAttrs.value || "",
+            text: child.nodeValue || "",
+            selected:
+              optionAttrs.selected === "selected" ||
+              optionAttrs.selected === "",
+            disabled:
+              optionAttrs.disabled === "disabled" ||
+              optionAttrs.disabled === "",
           };
 
           options.push(option);
@@ -1185,7 +1218,7 @@ export class ElementInteractionService {
     try {
       const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
         this.webContents,
-        'DOM.resolveNode',
+        "DOM.resolveNode",
         { backendNodeId },
         this.logger
       );
@@ -1194,18 +1227,19 @@ export class ElementInteractionService {
         return false;
       }
 
-      const attributesResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
-        this.webContents,
-        'Runtime.callFunctionOn',
-        {
-          functionDeclaration: 'function() { return this.multiple; }',
-          objectId: resolveResult.object.objectId,
-          returnByValue: true,
-        },
-        this.logger
-      );
+      const attributesResult: CDP.Runtime.CallFunctionOnResponse =
+        await sendCDPCommand(
+          this.webContents,
+          "Runtime.callFunctionOn",
+          {
+            functionDeclaration: "function() { return this.multiple; }",
+            objectId: resolveResult.object.objectId,
+            returnByValue: true,
+          },
+          this.logger
+        );
 
-      return !!(attributesResult.result?.value);
+      return !!attributesResult.result?.value;
     } catch (error) {
       this.logger.debug(`Failed to check if multi-select: ${error}`);
       return false;
@@ -1215,23 +1249,29 @@ export class ElementInteractionService {
   /**
    * Check if an option matches any of the target values
    */
-  private matchesOption(option: OptionElement, targetValues: string[]): boolean {
-    return targetValues.some(value =>
-      option.value === value ||
-      option.text === value ||
-      option.text.toLowerCase().includes(value.toLowerCase()) ||
-      value.toLowerCase().includes(option.text.toLowerCase())
+  private matchesOption(
+    option: OptionElement,
+    targetValues: string[]
+  ): boolean {
+    return targetValues.some(
+      (value) =>
+        option.value === value ||
+        option.text === value ||
+        option.text.toLowerCase().includes(value.toLowerCase()) ||
+        value.toLowerCase().includes(option.text.toLowerCase())
     );
   }
 
   /**
    * Select an option using JavaScript
    */
-  private async selectOptionByJavaScript(backendNodeId: number): Promise<boolean> {
+  private async selectOptionByJavaScript(
+    backendNodeId: number
+  ): Promise<boolean> {
     try {
       const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
         this.webContents,
-        'DOM.resolveNode',
+        "DOM.resolveNode",
         { backendNodeId },
         this.logger
       );
@@ -1242,7 +1282,7 @@ export class ElementInteractionService {
 
       await sendCDPCommand(
         this.webContents,
-        'Runtime.callFunctionOn',
+        "Runtime.callFunctionOn",
         {
           functionDeclaration: `
             function() {
@@ -1269,16 +1309,19 @@ export class ElementInteractionService {
   /**
    * Get node ID from backend node ID
    */
-  private async getNodeIdFromBackendNodeId(backendNodeId: number): Promise<number> {
-    const pushResult: CDP.DOM.PushNodesByBackendIdsToFrontendResponse = await sendCDPCommand(
-      this.webContents,
-      'DOM.pushNodesByBackendIdsToFrontend',
-      { backendNodeIds: [backendNodeId] },
-      this.logger
-    );
+  private async getNodeIdFromBackendNodeId(
+    backendNodeId: number
+  ): Promise<number> {
+    const pushResult: CDP.DOM.PushNodesByBackendIdsToFrontendResponse =
+      await sendCDPCommand(
+        this.webContents,
+        "DOM.pushNodesByBackendIdsToFrontend",
+        { backendNodeIds: [backendNodeId] },
+        this.logger
+      );
 
     if (!pushResult.nodeIds || !pushResult.nodeIds.length) {
-      throw new Error('Failed to get node ID from backend node ID');
+      throw new Error("Failed to get node ID from backend node ID");
     }
 
     return pushResult.nodeIds[0];
@@ -1326,11 +1369,12 @@ export class ElementInteractionService {
       );
 
       if (resolveResult.object && resolveResult.object.objectId) {
-        const boundsResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
-          this.webContents,
-          "Runtime.callFunctionOn",
-          {
-            functionDeclaration: `
+        const boundsResult: CDP.Runtime.CallFunctionOnResponse =
+          await sendCDPCommand(
+            this.webContents,
+            "Runtime.callFunctionOn",
+            {
+              functionDeclaration: `
 						function() {
 							const rect = this.getBoundingClientRect();
 							return {
@@ -1341,11 +1385,11 @@ export class ElementInteractionService {
 							};
 						}
 					`,
-            objectId: resolveResult.object.objectId,
-            returnByValue: true,
-          },
-          this.logger
-        );
+              objectId: resolveResult.object.objectId,
+              returnByValue: true,
+            },
+            this.logger
+          );
 
         if (boundsResult.result && boundsResult.result.value) {
           const rect = boundsResult.result.value;
@@ -1425,6 +1469,172 @@ export class ElementInteractionService {
         success: true,
         coordinates: { x: hoverX, y: hoverY },
         method,
+        duration: Date.now() - startTime,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Drag from source element to target position or element
+   * Based on browser-use drag_to implementation
+   */
+  async dragToElement(
+    sourceBackendNodeId: number,
+    options: DragOptions
+  ): Promise<DragResult> {
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug(
+        `Dragging from element with backendNodeId: ${sourceBackendNodeId}`,
+        {
+          sourceBackendNodeId,
+          options,
+        }
+      );
+
+      // Get source element coordinates
+      const sourceBox = await this.getBoundingBox(sourceBackendNodeId);
+      if (!sourceBox) {
+        throw new Error("Source element is not visible or has no bounding box");
+      }
+
+      const sourceX = sourceBox.x + sourceBox.width / 2;
+      const sourceY = sourceBox.y + sourceBox.height / 2;
+
+      // Get target coordinates
+      let targetX: number, targetY: number;
+
+      if (typeof options.target === "number") {
+        // Target is backendNodeId
+        const targetBox = await this.getBoundingBox(options.target);
+        if (!targetBox) {
+          throw new Error(
+            "Target element is not visible or has no bounding box"
+          );
+        }
+
+        if (options.targetPosition) {
+          targetX = targetBox.x + options.targetPosition.x;
+          targetY = targetBox.y + options.targetPosition.y;
+        } else {
+          targetX = targetBox.x + targetBox.width / 2;
+          targetY = targetBox.y + targetBox.height / 2;
+        }
+      } else {
+        // Target is Position
+        targetX = options.target.x;
+        targetY = options.target.y;
+      }
+
+      // Ensure coordinates are within viewport bounds
+      const viewport = await this.getViewportInfo();
+      const clampedSourceX = Math.max(0, Math.min(viewport.width - 1, sourceX));
+      const clampedSourceY = Math.max(
+        0,
+        Math.min(viewport.height - 1, sourceY)
+      );
+      const clampedTargetX = Math.max(0, Math.min(viewport.width - 1, targetX));
+      const clampedTargetY = Math.max(
+        0,
+        Math.min(viewport.height - 1, targetY)
+      );
+
+      // Scroll source element into view if needed
+      try {
+        await sendCDPCommand(
+          this.webContents,
+          "DOM.scrollIntoViewIfNeeded",
+          { backendNodeId: sourceBackendNodeId },
+          this.logger
+        );
+        await this.sleep(50); // Wait for scroll to complete
+      } catch (_error) {
+        // Continue even if scroll fails
+      }
+
+      // Scroll target element into view if target is an element
+      if (typeof options.target === "number") {
+        try {
+          await sendCDPCommand(
+            this.webContents,
+            "DOM.scrollIntoViewIfNeeded",
+            { backendNodeId: options.target },
+            this.logger
+          );
+          await this.sleep(50); // Wait for scroll to complete
+        } catch (_error) {
+          // Continue even if scroll fails
+        }
+      }
+
+      // Execute drag sequence: mouseMoved → mousePressed → mouseMoved → mouseReleased
+
+      await sendCDPCommand(
+        this.webContents,
+        "Input.dispatchMouseEvent",
+        {
+          type: "mouseMoved",
+          x: clampedSourceX,
+          y: clampedSourceY,
+        },
+        this.logger
+      );
+      await this.sleep(50);
+
+      await sendCDPCommand(
+        this.webContents,
+        "Input.dispatchMouseEvent",
+        {
+          type: "mousePressed",
+          x: clampedSourceX,
+          y: clampedSourceY,
+          button: "left",
+        },
+        this.logger
+      );
+      await this.sleep(50);
+
+      await sendCDPCommand(
+        this.webContents,
+        "Input.dispatchMouseEvent",
+        {
+          type: "mouseMoved",
+          x: clampedTargetX,
+          y: clampedTargetY,
+        },
+        this.logger
+      );
+      await this.sleep(50);
+
+      await sendCDPCommand(
+        this.webContents,
+        "Input.dispatchMouseEvent",
+        {
+          type: "mouseReleased",
+          x: clampedTargetX,
+          y: clampedTargetY,
+          button: "left",
+        },
+        this.logger
+      );
+
+      this.logger.debug("Drag operation completed successfully", {
+        sourceCoordinates: { x: clampedSourceX, y: clampedSourceY },
+        targetCoordinates: { x: clampedTargetX, y: clampedTargetY },
+      });
+
+      return {
+        success: true,
+        sourceCoordinates: { x: clampedSourceX, y: clampedSourceY },
+        targetCoordinates: { x: clampedTargetX, y: clampedTargetY },
+        method: "boxModel",
         duration: Date.now() - startTime,
       };
     } catch (error) {
