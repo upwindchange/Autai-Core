@@ -14,7 +14,7 @@ import type {
   PaintOrderStats,
   BoundingBoxFilterStats,
 } from "./types";
-import type { FillOptions, FillResult } from "./interaction";
+import type { FillOptions, FillResult, GetAttributeResult, EvaluateResult, GetBasicInfoResult } from "./interaction";
 
 export interface IDOMService {
   /**
@@ -80,6 +80,30 @@ export interface IDOMService {
   getElementBoundingBox(
     backendNodeId: number
   ): Promise<{ x: number; y: number; width: number; height: number } | null>;
+
+  /**
+   * Get an attribute value from an element using backendNodeId
+   */
+  getAttribute(
+    backendNodeId: number,
+    attributeName: string
+  ): Promise<GetAttributeResult>;
+
+  /**
+   * Evaluate JavaScript expression on element with arrow function support
+   */
+  evaluate(
+    backendNodeId: number,
+    expression: string,
+    args?: unknown[]
+  ): Promise<EvaluateResult>;
+
+  /**
+   * Get comprehensive element information
+   */
+  getBasicInfo(
+    backendNodeId: number
+  ): Promise<GetBasicInfoResult>;
 
   /**
    * Cleanup resources

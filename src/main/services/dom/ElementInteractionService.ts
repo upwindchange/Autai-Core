@@ -24,6 +24,10 @@ import type {
   HoverResult,
   DragOptions,
   DragResult,
+  GetAttributeResult,
+  EvaluateResult,
+  GetBasicInfoResult,
+  ElementBasicInfo,
 } from "../../../shared/dom/interaction";
 import { sendCDPCommand } from "./utils/DOMUtils";
 import type { LogFunctions } from "electron-log";
@@ -1637,6 +1641,346 @@ export class ElementInteractionService {
         method: "boxModel",
         duration: Date.now() - startTime,
       };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Get an attribute value from an element using backendNodeId
+   * Based on browser-use get_attribute implementation
+   */
+  async getAttribute(
+    backendNodeId: number,
+    attributeName: string
+  ): Promise<GetAttributeResult> {
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug("Getting attribute from element", {
+        backendNodeId,
+        attributeName,
+      });
+
+      // Strategy 1: Use DOM.getAttributes (primary method)
+      try {
+        const nodeId = await this.getNodeIdFromBackendNodeId(backendNodeId);
+
+        const attributesResult: CDP.DOM.GetAttributesResponse =
+          await sendCDPCommand(
+            this.webContents,
+            "DOM.getAttributes",
+            { nodeId },
+            this.logger
+          );
+
+        if (attributesResult.attributes) {
+          const attributes = attributesResult.attributes;
+          // Parse attributes array [name1, value1, name2, value2, ...]
+          for (let i = 0; i < attributes.length; i += 2) {
+            if (i + 1 < attributes.length && attributes[i] === attributeName) {
+              return {
+                success: true,
+                value: attributes[i + 1],
+                exists: true,
+                duration: Date.now() - startTime,
+              };
+            }
+          }
+        }
+
+        // Attribute not found
+        return {
+          success: true,
+          value: null,
+          exists: false,
+          duration: Date.now() - startTime,
+        };
+      } catch (error) {
+        this.logger.debug(`DOM.getAttributes failed: ${error}, trying JavaScript fallback`);
+      }
+
+      // Strategy 2: JavaScript fallback
+      const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
+        this.webContents,
+        "DOM.resolveNode",
+        { backendNodeId },
+        this.logger
+      );
+
+      if (!resolveResult.object?.objectId) {
+        throw new Error("Failed to resolve element for JavaScript evaluation");
+      }
+
+      const jsResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
+        this.webContents,
+        "Runtime.callFunctionOn",
+        {
+          functionDeclaration: `
+            function(attributeName) {
+              return this.getAttribute(attributeName);
+            }
+          `,
+          objectId: resolveResult.object.objectId,
+          arguments: [{ value: attributeName }],
+          returnByValue: true,
+        },
+        this.logger
+      );
+
+      const value = jsResult.result?.value;
+      const exists = value !== null && value !== undefined;
+
+      return {
+        success: true,
+        value: exists ? value : null,
+        exists,
+        duration: Date.now() - startTime,
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Evaluate JavaScript expression on element with arrow function support
+   * Based on browser-use evaluate implementation
+   */
+  async evaluate(
+    backendNodeId: number,
+    expression: string,
+    args: unknown[] = []
+  ): Promise<EvaluateResult> {
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug("Evaluating expression on element", {
+        backendNodeId,
+        expression: expression.substring(0, 100) + (expression.length > 100 ? "..." : ""),
+        argsCount: args.length,
+      });
+
+      // Validate arrow function format
+      const trimmedExpression = expression.trim();
+      if (!trimmedExpression.includes("=>")) {
+        throw new Error(
+          "JavaScript expression must be in arrow function format: (...args) => { ... } or async (...args) => { ... }"
+        );
+      }
+
+      // Get remote object ID
+      const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
+        this.webContents,
+        "DOM.resolveNode",
+        { backendNodeId },
+        this.logger
+      );
+
+      if (!resolveResult.object?.objectId) {
+        throw new Error("Failed to resolve element for evaluation (element may be detached from DOM)");
+      }
+
+      // Convert arrow function to standard function for CDP
+      const isAsync = trimmedExpression.startsWith("async");
+      const functionBody = isAsync ? trimmedExpression.substring(5).trim() : trimmedExpression;
+
+      // Simple arrow function to standard function conversion
+      let functionDeclaration: string;
+      if (functionBody.includes("{")) {
+        // Function body already has braces
+        functionDeclaration = `${isAsync ? "async " : ""}function${functionBody}`;
+      } else {
+        // Expression needs implicit return
+        const match = functionBody.match(/\(([^)]*)\)\s*=>\s*(.+)/);
+        if (match) {
+          const params = match[1];
+          const body = match[2];
+          functionDeclaration = `${isAsync ? "async " : ""}function(${params}) { return ${body}; }`;
+        } else {
+          throw new Error("Could not parse arrow function format");
+        }
+      }
+
+      // Prepare arguments for CDP
+      const callArguments = args.map((arg) => ({ value: arg }));
+
+      // Execute function
+      const result: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
+        this.webContents,
+        "Runtime.callFunctionOn",
+        {
+          functionDeclaration,
+          objectId: resolveResult.object.objectId,
+          arguments: callArguments,
+          returnByValue: true,
+          awaitPromise: true,
+        },
+        this.logger
+      );
+
+      // Handle execution results
+      if (result.exceptionDetails) {
+        return {
+          success: false,
+          error: `JavaScript evaluation failed: ${result.exceptionDetails.text}`,
+          wasThrown: true,
+          duration: Date.now() - startTime,
+        };
+      }
+
+      const evaluationResult = result.result?.value;
+      const resultType = typeof evaluationResult;
+
+      return {
+        success: true,
+        result: evaluationResult,
+        type: resultType,
+        wasThrown: false,
+        duration: Date.now() - startTime,
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        wasThrown: true,
+        duration: Date.now() - startTime,
+      };
+    }
+  }
+
+  /**
+   * Get comprehensive element information
+   * Based on browser-use get_basic_info implementation
+   */
+  async getBasicInfo(
+    backendNodeId: number
+  ): Promise<GetBasicInfoResult> {
+    const startTime = Date.now();
+
+    try {
+      this.logger.debug("Getting basic info for element", {
+        backendNodeId,
+      });
+
+      const info: ElementBasicInfo = {
+        backendNodeId,
+        nodeName: "",
+        nodeType: 0,
+        attributes: {},
+      };
+
+      // Get node information
+      try {
+        const nodeId = await this.getNodeIdFromBackendNodeId(backendNodeId);
+        info.nodeId = nodeId;
+
+        const describeResult: CDP.DOM.DescribeNodeResponse = await sendCDPCommand(
+          this.webContents,
+          "DOM.describeNode",
+          { nodeId, depth: 1 },
+          this.logger
+        );
+
+        const nodeInfo = describeResult.node;
+        info.nodeName = nodeInfo.nodeName || "";
+        info.nodeType = nodeInfo.nodeType || 0;
+        info.nodeValue = nodeInfo.nodeValue;
+
+        // Parse attributes into object
+        const attributes = nodeInfo.attributes || [];
+        const attributesObj: Record<string, string> = {};
+        for (let i = 0; i < attributes.length; i += 2) {
+          if (i + 1 < attributes.length) {
+            attributesObj[attributes[i]] = attributes[i + 1];
+          }
+        }
+        info.attributes = attributesObj;
+
+        // Extract commonly used properties
+        info.tagName = info.nodeName.toLowerCase();
+        info.id = attributesObj.id;
+        info.classes = attributesObj.class?.split(/\s+/).filter(Boolean) || [];
+
+      } catch (error) {
+        this.logger.debug(`Failed to get node description: ${error}`);
+        info.error = info.error ? `${info.error}; ${error}` : String(error);
+      }
+
+      // Get bounding box
+      try {
+        const boundingBox = await this.getBoundingBox(backendNodeId);
+        info.boundingBox = boundingBox || undefined;
+      } catch (error) {
+        this.logger.debug(`Failed to get bounding box: ${error}`);
+        // Not critical for basic info
+      }
+
+      // Get additional properties via JavaScript
+      try {
+        const resolveResult: CDP.DOM.ResolveNodeResponse = await sendCDPCommand(
+          this.webContents,
+          "DOM.resolveNode",
+          { backendNodeId },
+          this.logger
+        );
+
+        if (resolveResult.object?.objectId) {
+          const jsResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
+            this.webContents,
+            "Runtime.callFunctionOn",
+            {
+              functionDeclaration: `
+                function() {
+                  const rect = this.getBoundingClientRect();
+                  const style = getComputedStyle(this);
+
+                  return {
+                    textContent: this.textContent?.substring(0, 500) || null, // Limit text length
+                    isVisible: style.display !== 'none' &&
+                               style.visibility !== 'hidden' &&
+                               style.opacity !== '0' &&
+                               rect.width > 0 && rect.height > 0,
+                    isInteractive: ['a', 'button', 'input', 'select', 'textarea', 'option']
+                                   .includes(this.tagName.toLowerCase()),
+                    computedDisplay: style.display,
+                    computedVisibility: style.visibility
+                  };
+                }
+              `,
+              objectId: resolveResult.object.objectId,
+              returnByValue: true,
+            },
+            this.logger
+          );
+
+          if (jsResult.result?.value) {
+            const jsData = jsResult.result.value;
+            info.textContent = jsData.textContent;
+            info.isVisible = jsData.isVisible;
+            info.isInteractive = jsData.isInteractive;
+          }
+        }
+      } catch (error) {
+        this.logger.debug(`Failed to get JavaScript properties: ${error}`);
+        // Not critical for basic info
+      }
+
+      return {
+        success: true,
+        info,
+        duration: Date.now() - startTime,
+      };
+
     } catch (error) {
       return {
         success: false,

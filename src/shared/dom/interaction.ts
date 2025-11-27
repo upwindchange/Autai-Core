@@ -335,3 +335,191 @@ export interface DragResult {
 	 */
 	duration?: number;
 }
+
+// get_attribute interfaces
+export interface GetAttributeOptions {
+	/**
+	 * Name of the attribute to retrieve
+	 */
+	attributeName: string;
+}
+
+export interface GetAttributeResult {
+	/**
+	 * Whether the attribute retrieval was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Attribute value if found (null if attribute doesn't exist)
+	 */
+	value?: string | null;
+
+	/**
+	 * Error message if attribute retrieval failed
+	 */
+	error?: string;
+
+	/**
+	 * Whether the attribute exists on the element
+	 */
+	exists?: boolean;
+
+	/**
+	 * Time taken for the attribute retrieval operation in milliseconds
+	 */
+	duration?: number;
+}
+
+// evaluate interfaces
+export interface EvaluateOptions {
+	/**
+	 * JavaScript expression to execute (must be in arrow function format)
+	 */
+	expression: string;
+
+	/**
+	 * Arguments to pass to the JavaScript function
+	 */
+	arguments?: unknown[];
+
+	/**
+	 * Maximum time to wait for evaluation completion in milliseconds (default: 10000)
+	 */
+	timeout?: number;
+}
+
+export interface EvaluateResult {
+	/**
+	 * Whether the evaluation was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Result of the JavaScript evaluation
+	 */
+	result?: unknown;
+
+	/**
+	 * Error message if evaluation failed
+	 */
+	error?: string;
+
+	/**
+	 * Type of the result
+	 */
+	type?: string;
+
+	/**
+	 * Whether the evaluation threw an exception
+	 */
+	wasThrown?: boolean;
+
+	/**
+	 * Time taken for the evaluation operation in milliseconds
+	 */
+	duration?: number;
+}
+
+// get_basic_info interfaces
+export interface ElementBasicInfo {
+	/**
+	 * Backend node ID from CDP
+	 */
+	backendNodeId: number;
+
+	/**
+	 * Node ID from CDP
+	 */
+	nodeId?: number;
+
+	/**
+	 * Node name (e.g., "DIV", "INPUT")
+	 */
+	nodeName: string;
+
+	/**
+	 * Node type (e.g., 1 for ELEMENT_NODE)
+	 */
+	nodeType: number;
+
+	/**
+	 * Node value
+	 */
+	nodeValue?: string | null;
+
+	/**
+	 * Element attributes as key-value pairs
+	 */
+	attributes: Record<string, string>;
+
+	/**
+	 * Element bounding box
+	 */
+	boundingBox?: BoundingBox;
+
+	/**
+	 * Error message if any part of the info collection failed
+	 */
+	error?: string | null;
+
+	/**
+	 * Tag name in lowercase (e.g., "div", "input")
+	 */
+	tagName?: string;
+
+	/**
+	 * Text content of the element (limited to 500 characters)
+	 */
+	textContent?: string;
+
+	/**
+	 * Whether the element is visible
+	 */
+	isVisible?: boolean;
+
+	/**
+	 * Whether the element is interactive (clickable, focusable, etc.)
+	 */
+	isInteractive?: boolean;
+
+	/**
+	 * Element ID attribute
+	 */
+	id?: string;
+
+	/**
+	 * Array of CSS class names
+	 */
+	classes?: string[];
+}
+
+export interface GetBasicInfoOptions {
+	/**
+	 * Optional configuration for basic info retrieval
+	 */
+	includeTextContent?: boolean;
+	maxTextLength?: number;
+}
+
+export interface GetBasicInfoResult {
+	/**
+	 * Whether the basic info retrieval was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Comprehensive element information if successful
+	 */
+	info?: ElementBasicInfo;
+
+	/**
+	 * Error message if basic info retrieval failed
+	 */
+	error?: string;
+
+	/**
+	 * Time taken for the basic info retrieval operation in milliseconds
+	 */
+	duration?: number;
+}

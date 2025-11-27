@@ -17,7 +17,7 @@ import type {
   EnhancedSnapshotNode,
   BoundsObject,
 } from "@shared/dom";
-import type { ClickOptions, ClickResult, FillOptions, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult, DragOptions, DragResult } from "@shared/dom/interaction";
+import type { ClickOptions, ClickResult, FillOptions, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult, DragOptions, DragResult, GetAttributeResult, EvaluateResult, GetBasicInfoResult } from "@shared/dom/interaction";
 import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
 import {
   sendCDPCommand,
@@ -738,6 +738,169 @@ export class DOMService implements IDOMService {
         error instanceof Error ? error.message : String(error);
       this.logger.error(
         `Drag operation failed for backendNodeId ${sourceBackendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Get an attribute value from an element
+   */
+  async getAttribute(
+    backendNodeId: number,
+    attributeName: string
+  ): Promise<GetAttributeResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug("Getting attribute from element", {
+        backendNodeId,
+        attributeName,
+      });
+
+      const result = await this.elementInteraction.getAttribute(
+        backendNodeId,
+        attributeName
+      );
+
+      if (result.success) {
+        this.logger.info(`Attribute retrieved successfully`, {
+          backendNodeId,
+          attributeName,
+          value: result.value,
+          exists: result.exists,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to get attribute`, {
+          backendNodeId,
+          attributeName,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Attribute retrieval failed for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Evaluate JavaScript expression on element
+   */
+  async evaluate(
+    backendNodeId: number,
+    expression: string,
+    args: unknown[] = []
+  ): Promise<EvaluateResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug("Evaluating expression on element", {
+        backendNodeId,
+        expression: expression.substring(0, 100) + (expression.length > 100 ? "..." : ""),
+        argsCount: args.length,
+      });
+
+      const result = await this.elementInteraction.evaluate(
+        backendNodeId,
+        expression,
+        args
+      );
+
+      if (result.success) {
+        this.logger.info(`Expression evaluated successfully`, {
+          backendNodeId,
+          result: result.result,
+          type: result.type,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to evaluate expression`, {
+          backendNodeId,
+          expression: expression.substring(0, 100),
+          error: result.error,
+          wasThrown: result.wasThrown,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Expression evaluation failed for backendNodeId ${backendNodeId}: ${errorMessage}`
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+        wasThrown: true,
+      };
+    }
+  }
+
+  /**
+   * Get comprehensive element information
+   */
+  async getBasicInfo(
+    backendNodeId: number
+  ): Promise<GetBasicInfoResult> {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
+
+    try {
+      this.logger.debug("Getting basic info for element", {
+        backendNodeId,
+      });
+
+      const result = await this.elementInteraction.getBasicInfo(
+        backendNodeId
+      );
+
+      if (result.success) {
+        this.logger.info(`Basic info retrieved successfully`, {
+          backendNodeId,
+          tagName: result.info?.tagName,
+          id: result.info?.id,
+          classes: result.info?.classes,
+          isVisible: result.info?.isVisible,
+          duration: result.duration,
+        });
+      } else {
+        this.logger.error(`Failed to get basic info`, {
+          backendNodeId,
+          error: result.error,
+          duration: result.duration,
+        });
+      }
+
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `Basic info retrieval failed for backendNodeId ${backendNodeId}: ${errorMessage}`
       );
 
       return {
