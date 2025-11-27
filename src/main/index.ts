@@ -423,7 +423,7 @@ ipcMain.handle("dom:incrementalDetection", async (): Promise<IncrementalDetectio
       success: true,
       hasChanges: result.hasChanges,
       changeCount: result.changeCount,
-      newElementsCount: result.serializedState?.stats?.newElements || 0,
+      newElementsCount: result.changeCount,
       timestamp: Date.now()
     };
 

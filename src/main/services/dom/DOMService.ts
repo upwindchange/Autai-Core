@@ -777,12 +777,27 @@ export class DOMService implements IDOMService {
     }
 
     try {
+      this.logger.debug("Starting change detection", {
+        hasPreviousState: !!previousState,
+        previousStateSelectorMapSize: previousState?.selectorMap ? Object.keys(previousState.selectorMap).length : 0,
+        serviceStateSelectorMapSize: this.previousState?.selectorMap ? Object.keys(this.previousState.selectorMap).length : 0
+      });
+
       const domTree = await this.getDOMTree();
 
       if (!previousState) {
         const serializedResult = await this.serializer.serializeDOMTree(
           domTree
         );
+        // Update service state for next comparison
+        this.previousState = serializedResult.serializedState;
+
+        this.logger.info("First run state updated successfully", {
+          newSelectorMapSize: Object.keys(serializedResult.serializedState.selectorMap).length,
+          changeCount: serializedResult.stats.totalNodes,
+          hasChanges: true
+        });
+
         return {
           domTree,
           serializedState: serializedResult.serializedState,
@@ -798,6 +813,15 @@ export class DOMService implements IDOMService {
       const changeCount = serializedResult.stats.newElements;
       const hasChanges = changeCount > 0;
 
+      // Update service state for next comparison - only on success
+      this.previousState = serializedResult.serializedState;
+
+      this.logger.info("State updated successfully", {
+        newSelectorMapSize: Object.keys(serializedResult.serializedState.selectorMap).length,
+        changeCount,
+        hasChanges
+      });
+
       return {
         domTree,
         serializedState: serializedResult.serializedState,
@@ -808,6 +832,7 @@ export class DOMService implements IDOMService {
       this.logger.error(
         `Failed to get DOM tree with change detection: ${error}`
       );
+      // Don't update this.previousState on error
       throw error;
     }
   }
