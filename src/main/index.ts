@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { is } from "@electron-toolkit/utils";
 import log from "electron-log/main";
-import { DOMService } from "@/services/dom/DOMService";
-import { ElementInteractionService } from "@/services/interaction/ElementInteractionService";
+import { DOMService } from "@/services/dom";
+import { ElementInteractionService } from "@/services/interaction";
 import type {
   SerializedDOMState,
   SerializationConfig,
