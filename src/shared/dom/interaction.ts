@@ -523,3 +523,85 @@ export interface GetBasicInfoResult {
 	 */
 	duration?: number;
 }
+
+// Scroll interfaces
+export interface ScrollOptions {
+	/**
+	 * Scroll direction - down for positive, up for negative
+	 */
+	direction?: 'up' | 'down';
+
+	/**
+	 * Number of pages to scroll (supports fractional values like 0.5 for half page)
+	 */
+	pages?: number;
+
+	/**
+	 * Milliseconds to wait between scroll operations
+	 */
+	scrollDelay?: number;
+
+	/**
+	 * Whether to scroll smoothly (if supported)
+	 */
+	smooth?: boolean;
+}
+
+export interface ScrollAtCoordinateOptions {
+	/**
+	 * X coordinate relative to viewport left edge
+	 */
+	x: number;
+
+	/**
+	 * Y coordinate relative to viewport top edge
+	 */
+	y: number;
+
+	/**
+	 * Horizontal scroll delta (positive=right, negative=left)
+	 */
+	deltaX?: number;
+
+	/**
+	 * Vertical scroll delta (positive=down, negative=up)
+	 */
+	deltaY?: number;
+}
+
+export interface ScrollResult {
+	/**
+	 * Whether the scroll operation succeeded
+	 */
+	success: boolean;
+
+	/**
+	 * New scroll position if successful
+	 */
+	scrollPosition?: Position;
+
+	/**
+	 * Total pixels scrolled
+	 */
+	pixelsScrolled?: number;
+
+	/**
+	 * Scroll direction used
+	 */
+	direction?: string;
+
+	/**
+	 * Method used for scrolling ('cdp', 'javascript', 'element')
+	 */
+	method?: string;
+
+	/**
+	 * Execution time in milliseconds
+	 */
+	duration?: number;
+
+	/**
+	 * Error message if failed
+	 */
+	error?: string;
+}

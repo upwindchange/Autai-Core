@@ -17,15 +17,29 @@ import type {
   EnhancedSnapshotNode,
   BoundsObject,
 } from "@shared/dom";
-import type { ClickOptions, ClickResult, FillOptions, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult, DragOptions, DragResult, GetAttributeResult, EvaluateResult, GetBasicInfoResult } from "@shared/dom/interaction";
-import { DOMTreeSerializer } from "./serializer/DOMTreeSerializer";
+import type {
+  ClickOptions,
+  ClickResult,
+  FillOptions,
+  FillResult,
+  SelectOptionOptions,
+  SelectOptionResult,
+  HoverOptions,
+  HoverResult,
+  DragOptions,
+  DragResult,
+  GetAttributeResult,
+  EvaluateResult,
+  GetBasicInfoResult,
+} from "@shared/dom/interaction";
+import { DOMTreeSerializer } from "@/services/dom/serializer/DOMTreeSerializer";
 import {
   sendCDPCommand,
   attachDebugger,
   detachDebugger,
   isDebuggerAttached,
-} from "./utils/DOMUtils";
-import { ElementInteractionService } from "./ElementInteractionService";
+} from "@/services/dom/utils/DOMUtils";
+import { ElementInteractionService } from "@/services/dom/ElementInteractionService";
 
 export class DOMService implements IDOMService {
   private webContents: WebContents;
@@ -816,7 +830,8 @@ export class DOMService implements IDOMService {
     try {
       this.logger.debug("Evaluating expression on element", {
         backendNodeId,
-        expression: expression.substring(0, 100) + (expression.length > 100 ? "..." : ""),
+        expression:
+          expression.substring(0, 100) + (expression.length > 100 ? "..." : ""),
         argsCount: args.length,
       });
 
@@ -862,9 +877,7 @@ export class DOMService implements IDOMService {
   /**
    * Get comprehensive element information
    */
-  async getBasicInfo(
-    backendNodeId: number
-  ): Promise<GetBasicInfoResult> {
+  async getBasicInfo(backendNodeId: number): Promise<GetBasicInfoResult> {
     if (!isDebuggerAttached(this.webContents)) {
       throw new Error("Debugger not attached - call initialize() first");
     }
@@ -874,9 +887,7 @@ export class DOMService implements IDOMService {
         backendNodeId,
       });
 
-      const result = await this.elementInteraction.getBasicInfo(
-        backendNodeId
-      );
+      const result = await this.elementInteraction.getBasicInfo(backendNodeId);
 
       if (result.success) {
         this.logger.info(`Basic info retrieved successfully`, {
@@ -998,8 +1009,12 @@ export class DOMService implements IDOMService {
     try {
       this.logger.debug("Starting change detection", {
         hasPreviousState: !!previousState,
-        previousStateSelectorMapSize: previousState?.selectorMap ? Object.keys(previousState.selectorMap).length : 0,
-        serviceStateSelectorMapSize: this.previousState?.selectorMap ? Object.keys(this.previousState.selectorMap).length : 0
+        previousStateSelectorMapSize: previousState?.selectorMap
+          ? Object.keys(previousState.selectorMap).length
+          : 0,
+        serviceStateSelectorMapSize: this.previousState?.selectorMap
+          ? Object.keys(this.previousState.selectorMap).length
+          : 0,
       });
 
       const domTree = await this.getDOMTree();
@@ -1012,9 +1027,11 @@ export class DOMService implements IDOMService {
         this.previousState = serializedResult.serializedState;
 
         this.logger.info("First run state updated successfully", {
-          newSelectorMapSize: Object.keys(serializedResult.serializedState.selectorMap).length,
+          newSelectorMapSize: Object.keys(
+            serializedResult.serializedState.selectorMap
+          ).length,
           changeCount: serializedResult.stats.totalNodes,
-          hasChanges: true
+          hasChanges: true,
         });
 
         return {
@@ -1036,9 +1053,11 @@ export class DOMService implements IDOMService {
       this.previousState = serializedResult.serializedState;
 
       this.logger.info("State updated successfully", {
-        newSelectorMapSize: Object.keys(serializedResult.serializedState.selectorMap).length,
+        newSelectorMapSize: Object.keys(
+          serializedResult.serializedState.selectorMap
+        ).length,
         changeCount,
-        hasChanges
+        hasChanges,
       });
 
       return {

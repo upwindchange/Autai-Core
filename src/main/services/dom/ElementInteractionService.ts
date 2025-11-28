@@ -28,8 +28,11 @@ import type {
   EvaluateResult,
   GetBasicInfoResult,
   ElementBasicInfo,
-} from "../../../shared/dom/interaction";
-import { sendCDPCommand } from "./utils/DOMUtils";
+  ScrollOptions,
+  ScrollAtCoordinateOptions,
+  ScrollResult,
+} from "@shared/dom/interaction";
+import { sendCDPCommand } from "@/services/dom/utils/DOMUtils";
 import type { LogFunctions } from "electron-log";
 
 /**
@@ -1701,7 +1704,9 @@ export class ElementInteractionService {
           duration: Date.now() - startTime,
         };
       } catch (error) {
-        this.logger.debug(`DOM.getAttributes failed: ${error}, trying JavaScript fallback`);
+        this.logger.debug(
+          `DOM.getAttributes failed: ${error}, trying JavaScript fallback`
+        );
       }
 
       // Strategy 2: JavaScript fallback
@@ -1741,7 +1746,6 @@ export class ElementInteractionService {
         exists,
         duration: Date.now() - startTime,
       };
-
     } catch (error) {
       return {
         success: false,
@@ -1765,7 +1769,8 @@ export class ElementInteractionService {
     try {
       this.logger.debug("Evaluating expression on element", {
         backendNodeId,
-        expression: expression.substring(0, 100) + (expression.length > 100 ? "..." : ""),
+        expression:
+          expression.substring(0, 100) + (expression.length > 100 ? "..." : ""),
         argsCount: args.length,
       });
 
@@ -1786,25 +1791,33 @@ export class ElementInteractionService {
       );
 
       if (!resolveResult.object?.objectId) {
-        throw new Error("Failed to resolve element for evaluation (element may be detached from DOM)");
+        throw new Error(
+          "Failed to resolve element for evaluation (element may be detached from DOM)"
+        );
       }
 
       // Convert arrow function to standard function for CDP
       const isAsync = trimmedExpression.startsWith("async");
-      const functionBody = isAsync ? trimmedExpression.substring(5).trim() : trimmedExpression;
+      const functionBody = isAsync
+        ? trimmedExpression.substring(5).trim()
+        : trimmedExpression;
 
       // Simple arrow function to standard function conversion
       let functionDeclaration: string;
       if (functionBody.includes("{")) {
         // Function body already has braces
-        functionDeclaration = `${isAsync ? "async " : ""}function${functionBody}`;
+        functionDeclaration = `${
+          isAsync ? "async " : ""
+        }function${functionBody}`;
       } else {
         // Expression needs implicit return
         const match = functionBody.match(/\(([^)]*)\)\s*=>\s*(.+)/);
         if (match) {
           const params = match[1];
           const body = match[2];
-          functionDeclaration = `${isAsync ? "async " : ""}function(${params}) { return ${body}; }`;
+          functionDeclaration = `${
+            isAsync ? "async " : ""
+          }function(${params}) { return ${body}; }`;
         } else {
           throw new Error("Could not parse arrow function format");
         }
@@ -1847,7 +1860,6 @@ export class ElementInteractionService {
         wasThrown: false,
         duration: Date.now() - startTime,
       };
-
     } catch (error) {
       return {
         success: false,
@@ -1862,9 +1874,7 @@ export class ElementInteractionService {
    * Get comprehensive element information
    * Based on browser-use get_basic_info implementation
    */
-  async getBasicInfo(
-    backendNodeId: number
-  ): Promise<GetBasicInfoResult> {
+  async getBasicInfo(backendNodeId: number): Promise<GetBasicInfoResult> {
     const startTime = Date.now();
 
     try {
@@ -1884,12 +1894,13 @@ export class ElementInteractionService {
         const nodeId = await this.getNodeIdFromBackendNodeId(backendNodeId);
         info.nodeId = nodeId;
 
-        const describeResult: CDP.DOM.DescribeNodeResponse = await sendCDPCommand(
-          this.webContents,
-          "DOM.describeNode",
-          { nodeId, depth: 1 },
-          this.logger
-        );
+        const describeResult: CDP.DOM.DescribeNodeResponse =
+          await sendCDPCommand(
+            this.webContents,
+            "DOM.describeNode",
+            { nodeId, depth: 1 },
+            this.logger
+          );
 
         const nodeInfo = describeResult.node;
         info.nodeName = nodeInfo.nodeName || "";
@@ -1910,7 +1921,6 @@ export class ElementInteractionService {
         info.tagName = info.nodeName.toLowerCase();
         info.id = attributesObj.id;
         info.classes = attributesObj.class?.split(/\s+/).filter(Boolean) || [];
-
       } catch (error) {
         this.logger.debug(`Failed to get node description: ${error}`);
         info.error = info.error ? `${info.error}; ${error}` : String(error);
@@ -1935,11 +1945,12 @@ export class ElementInteractionService {
         );
 
         if (resolveResult.object?.objectId) {
-          const jsResult: CDP.Runtime.CallFunctionOnResponse = await sendCDPCommand(
-            this.webContents,
-            "Runtime.callFunctionOn",
-            {
-              functionDeclaration: `
+          const jsResult: CDP.Runtime.CallFunctionOnResponse =
+            await sendCDPCommand(
+              this.webContents,
+              "Runtime.callFunctionOn",
+              {
+                functionDeclaration: `
                 function() {
                   const rect = this.getBoundingClientRect();
                   const style = getComputedStyle(this);
@@ -1957,11 +1968,11 @@ export class ElementInteractionService {
                   };
                 }
               `,
-              objectId: resolveResult.object.objectId,
-              returnByValue: true,
-            },
-            this.logger
-          );
+                objectId: resolveResult.object.objectId,
+                returnByValue: true,
+              },
+              this.logger
+            );
 
           if (jsResult.result?.value) {
             const jsData = jsResult.result.value;
@@ -1980,7 +1991,6 @@ export class ElementInteractionService {
         info,
         duration: Date.now() - startTime,
       };
-
     } catch (error) {
       return {
         success: false,
@@ -1988,5 +1998,225 @@ export class ElementInteractionService {
         duration: Date.now() - startTime,
       };
     }
+  }
+
+  /**
+   * Scroll by pages using multi-strategy approach
+   * Based on browser-use scroll implementation
+   */
+  async scrollPages(options: ScrollOptions = {}): Promise<ScrollResult> {
+    const startTime = Date.now();
+    const {
+      direction = 'down',
+      pages = 1.0,
+      scrollDelay = 300,
+      smooth = true
+    } = options;
+
+    try {
+      this.logger.debug("Scrolling by pages", {
+        direction,
+        pages,
+        scrollDelay,
+        smooth,
+      });
+
+      let cdpError: Error | unknown;
+
+      // Strategy 1: CDP Input.synthesizeScrollGesture (most realistic)
+      try {
+        const viewport = await this.getViewportInfo();
+        const pixels = Math.round(pages * viewport.height);
+        const scrollDelta = direction === 'up' ? -pixels : pixels;
+
+        // Implement fractional page scrolling with multiple operations
+        if (pages >= 1.0) {
+          const numFullPages = Math.floor(pages);
+          const remainingFraction = pages - numFullPages;
+          let totalScrolled = 0;
+
+          // Full page scrolls
+          for (let i = 0; i < numFullPages; i++) {
+            await this.performScrollGesture(0, viewport.height * (direction === 'up' ? -1 : 1), smooth);
+            totalScrolled += viewport.height;
+            if (i < numFullPages - 1) await this.sleep(scrollDelay);
+          }
+
+          // Fractional page scroll
+          if (remainingFraction > 0) {
+            const fractionPixels = Math.round(remainingFraction * viewport.height);
+            await this.performScrollGesture(0, fractionPixels * (direction === 'up' ? -1 : 1), smooth);
+            totalScrolled += fractionPixels;
+          }
+
+          return {
+            success: true,
+            pixelsScrolled: totalScrolled,
+            direction,
+            method: 'cdp',
+            duration: Date.now() - startTime
+          };
+        } else {
+          // Single fractional scroll
+          await this.performScrollGesture(0, scrollDelta, smooth);
+          return {
+            success: true,
+            pixelsScrolled: Math.abs(scrollDelta),
+            direction,
+            method: 'cdp',
+            duration: Date.now() - startTime
+          };
+        }
+      } catch (error) {
+        cdpError = error;
+        this.logger.debug(`CDP scroll failed: ${error}, trying JavaScript fallback`);
+      }
+
+      // Strategy 2: JavaScript window.scrollBy fallback
+      try {
+        const viewport = await this.getViewportInfo();
+        const pixels = Math.round(pages * viewport.height);
+        const scrollDelta = direction === 'up' ? -pixels : pixels;
+
+        await sendCDPCommand(this.webContents, "Runtime.evaluate", {
+          expression: `window.scrollBy(0, ${scrollDelta})`
+        }, this.logger);
+
+        return {
+          success: true,
+          pixelsScrolled: Math.abs(scrollDelta),
+          direction,
+          method: 'javascript',
+          duration: Date.now() - startTime
+        };
+      } catch (jsError) {
+        return {
+          success: false,
+          error: `Both CDP and JavaScript scroll failed. CDP: ${cdpError}, JavaScript: ${jsError}`,
+          duration: Date.now() - startTime
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      };
+    }
+  }
+
+  /**
+   * Scroll at specific coordinates with delta values
+   * Based on browser-use scroll_at_coordinates implementation
+   */
+  async scrollAtCoordinate(options: ScrollAtCoordinateOptions): Promise<ScrollResult> {
+    const startTime = Date.now();
+    const { x, y, deltaX = 0, deltaY = 0 } = options;
+
+    try {
+      this.logger.debug("Scrolling at coordinates", {
+        x, y, deltaX, deltaY
+      });
+
+      // Clamp coordinates to viewport bounds
+      const viewport = await this.getViewportInfo();
+      const clampedX = Math.max(0, Math.min(viewport.width - 1, x));
+      const clampedY = Math.max(0, Math.min(viewport.height - 1, y));
+
+      if (deltaX === 0 && deltaY === 0) {
+        return {
+          success: false,
+          error: "No scroll delta provided (both deltaX and deltaY are zero)",
+          duration: Date.now() - startTime
+        };
+      }
+
+      let cdpError: Error | unknown;
+
+      // Strategy 1: CDP Input.synthesizeScrollGesture at coordinates
+      try {
+        await this.performScrollGesture(deltaX, deltaY, true, clampedX, clampedY);
+
+        return {
+          success: true,
+          pixelsScrolled: Math.round(Math.sqrt(deltaX * deltaX + deltaY * deltaY)),
+          method: 'cdp',
+          duration: Date.now() - startTime
+        };
+      } catch (error) {
+        cdpError = error;
+        this.logger.debug(`CDP scroll at coordinate failed: ${error}, trying JavaScript fallback`);
+      }
+
+      // Strategy 2: JavaScript element-based scroll
+      try {
+        await sendCDPCommand(this.webContents, "Runtime.evaluate", {
+          expression: `
+            const element = document.elementFromPoint(${clampedX}, ${clampedY});
+            if (element && (element.scrollWidth > element.clientWidth || element.scrollHeight > element.clientHeight)) {
+              element.scrollBy({ left: ${deltaX}, top: ${deltaY}, behavior: 'smooth' });
+            } else {
+              window.scrollBy({ left: ${deltaX}, top: ${deltaY}, behavior: 'smooth' });
+            }
+          `
+        }, this.logger);
+
+        return {
+          success: true,
+          pixelsScrolled: Math.round(Math.sqrt(deltaX * deltaX + deltaY * deltaY)),
+          method: 'javascript',
+          duration: Date.now() - startTime
+        };
+      } catch (jsError) {
+        return {
+          success: false,
+          error: `Both CDP and JavaScript scroll failed. CDP: ${cdpError}, JavaScript: ${jsError}`,
+          duration: Date.now() - startTime
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - startTime
+      };
+    }
+  }
+
+  /**
+   * Perform scroll gesture using CDP Input.synthesizeScrollGesture
+   */
+  private async performScrollGesture(
+    deltaX: number,
+    deltaY: number,
+    smooth: boolean = true,
+    x?: number,
+    y?: number
+  ): Promise<void> {
+    const params: Record<string, unknown> = {
+      x: x || 0,
+      y: y || 0,
+      deltaX,
+      deltaY,
+      repeatCount: 1,
+      repeatDelayMs: 0,
+      interactionMarkerName: 'scroll'
+    };
+
+    if (smooth) {
+      // Add momentum and velocity for natural scrolling
+      params.speed = 800; // pixels per second
+      params.fingerCount = 1;
+      params.gestureSourceType = 'finger';
+    } else {
+      params.gestureSourceType = 'mouse';
+    }
+
+    await sendCDPCommand(
+      this.webContents,
+      "Input.synthesizeScrollGesture",
+      params,
+      this.logger
+    );
   }
 }
