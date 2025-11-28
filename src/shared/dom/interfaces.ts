@@ -14,7 +14,6 @@ import type {
   PaintOrderStats,
   BoundingBoxFilterStats,
 } from "./types";
-import type { FillOptions, FillResult, GetAttributeResult, EvaluateResult, GetBasicInfoResult } from "./interaction";
 
 export interface IDOMService {
   /**
@@ -59,52 +58,11 @@ export interface IDOMService {
   };
 
   /**
-   * Click an element using its backendNodeId
+   * Get previous serialized state for change detection
    */
-  clickElement(
-    backendNodeId: number,
-    options?: import("./interaction").ClickOptions
-  ): Promise<import("./interaction").ClickResult>;
+  getPreviousState(): SerializedDOMState | undefined;
 
-  /**
-   * Fill an input element with text using its backendNodeId
-   */
-  fillElement(
-    backendNodeId: number,
-    options: FillOptions
-  ): Promise<FillResult>;
-
-  /**
-   * Get element bounding box using backendNodeId
-   */
-  getElementBoundingBox(
-    backendNodeId: number
-  ): Promise<{ x: number; y: number; width: number; height: number } | null>;
-
-  /**
-   * Get an attribute value from an element using backendNodeId
-   */
-  getAttribute(
-    backendNodeId: number,
-    attributeName: string
-  ): Promise<GetAttributeResult>;
-
-  /**
-   * Evaluate JavaScript expression on element with arrow function support
-   */
-  evaluate(
-    backendNodeId: number,
-    expression: string,
-    args?: unknown[]
-  ): Promise<EvaluateResult>;
-
-  /**
-   * Get comprehensive element information
-   */
-  getBasicInfo(
-    backendNodeId: number
-  ): Promise<GetBasicInfoResult>;
-
+  
   /**
    * Cleanup resources
    */

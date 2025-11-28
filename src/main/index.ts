@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { is } from "@electron-toolkit/utils";
 import log from "electron-log/main";
-import { DOMService } from "./services/dom/DOMService";
+import { DOMService } from "@/services/dom/DOMService";
+import { ElementInteractionService } from "@/services/interaction/ElementInteractionService";
 import type {
   SerializedDOMState,
   SerializationConfig,
@@ -41,6 +42,7 @@ process.env.VITE_PUBLIC = ELECTRON_RENDERER_URL
 let win: BrowserWindow | null = null;
 let webView: WebContentsView | null = null;
 let domService: DOMService | null = null;
+let elementInteractionService: ElementInteractionService | null = null;
 let viewBounds: Rectangle = { x: 0, y: 0, width: 1920, height: 1080 };
 
 // Secondary control panel window
@@ -84,19 +86,26 @@ function createWindow() {
   win.contentView.addChildView(webView);
 
   domService = new DOMService(webView.webContents);
+  elementInteractionService = new ElementInteractionService(
+    webView.webContents
+  );
   webView.webContents.on("did-finish-load", async () => {
-    logger.info("Page finished loading, processing DOM...");
+    logger.info("Page finished loading, initializing services...");
 
     try {
-      if (domService) {
-        await domService.initialize();
+      if (domService && elementInteractionService) {
+        await Promise.all([
+          domService.initialize(),
+          elementInteractionService.initialize(),
+        ]);
+
         await domService.getSerializedDOMTree();
         logger.info(
-          `DOM tree processed successfully - tree construction complete`
+          "Both services initialized successfully - tree construction complete"
         );
       }
     } catch (error) {
-      logger.error("Failed to process DOM after page load:", error);
+      logger.error("Failed to initialize services after page load:", error);
     }
   });
 
@@ -187,6 +196,16 @@ app.on("before-quit", async () => {
       logger.error("Error cleaning up DOMService:", error);
     }
     domService = null;
+  }
+
+  if (elementInteractionService) {
+    try {
+      await elementInteractionService.destroy();
+      logger.debug("ElementInteractionService cleaned up successfully");
+    } catch (error) {
+      logger.error("Error cleaning up ElementInteractionService:", error);
+    }
+    elementInteractionService = null;
   }
 
   if (webView && win && !win.isDestroyed()) {
@@ -310,133 +329,6 @@ ipcMain.handle("dom:getStatus", () => {
   return domService.getStatus();
 });
 
-ipcMain.handle(
-  "dom:clickElement",
-  async (_, backendNodeId: number, options?: ClickOptions) => {
-    if (!domService) {
-      throw new Error("DOMService not initialized");
-    }
-    try {
-      logger.info(`IPC: Clicking element with backendNodeId: ${backendNodeId}`);
-      const result = await domService.clickElement(backendNodeId, options);
-      logger.info(
-        `IPC: Element click result: ${result.success ? "success" : "failed"}`
-      );
-      return result;
-    } catch (error) {
-      logger.error(
-        `IPC: Failed to click element with backendNodeId ${backendNodeId}:`,
-        error
-      );
-      throw error;
-    }
-  }
-);
-
-ipcMain.handle(
-  "dom:fillElement",
-  async (_, backendNodeId: number, options: FillOptions) => {
-    if (!domService) {
-      throw new Error("DOMService not initialized");
-    }
-    try {
-      logger.info(
-        `IPC: Filling element with backendNodeId: ${backendNodeId}, value: "${options.value}"`
-      );
-      const result = await domService.fillElement(backendNodeId, options);
-      logger.info(
-        `IPC: Element fill result: ${result.success ? "success" : "failed"}`
-      );
-      return result;
-    } catch (error) {
-      logger.error(
-        `IPC: Failed to fill element with backendNodeId ${backendNodeId}:`,
-        error
-      );
-      throw error;
-    }
-  }
-);
-
-ipcMain.handle(
-  "dom:selectOption",
-  async (_, backendNodeId: number, options: SelectOptionOptions) => {
-    if (!domService) {
-      throw new Error("DOMService not initialized");
-    }
-    try {
-      logger.info(
-        `IPC: Selecting options for element with backendNodeId: ${backendNodeId}, values: "${
-          Array.isArray(options.values)
-            ? options.values.join(", ")
-            : options.values
-        }"`
-      );
-      const result = await domService.selectOption(backendNodeId, options);
-      logger.info(
-        `IPC: Element select result: ${
-          result.success ? "success" : "failed"
-        }, options selected: ${result.optionsSelected || 0}`
-      );
-      return result;
-    } catch (error) {
-      logger.error(
-        `IPC: Failed to select options for element with backendNodeId ${backendNodeId}:`,
-        error
-      );
-      throw error;
-    }
-  }
-);
-
-ipcMain.handle(
-  "dom:hoverElement",
-  async (_, backendNodeId: number, options?: HoverOptions) => {
-    if (!domService) {
-      throw new Error("DOMService not initialized");
-    }
-    try {
-      logger.info(`IPC: Hovering element with backendNodeId: ${backendNodeId}`);
-      const result = await domService.hoverElement(backendNodeId, options);
-      logger.info(
-        `IPC: Element hover result: ${result.success ? "success" : "failed"}`
-      );
-      return result;
-    } catch (error) {
-      logger.error(
-        `IPC: Failed to hover element with backendNodeId ${backendNodeId}:`,
-        error
-      );
-      throw error;
-    }
-  }
-);
-
-ipcMain.handle(
-  "dom:dragElement",
-  async (_, sourceBackendNodeId: number, options: DragOptions) => {
-    if (!domService) {
-      throw new Error("DOMService not initialized");
-    }
-    try {
-      logger.info(
-        `IPC: Dragging from element with backendNodeId: ${sourceBackendNodeId}`
-      );
-      const result = await domService.dragElement(sourceBackendNodeId, options);
-      logger.info(
-        `IPC: Element drag result: ${result.success ? "success" : "failed"}`
-      );
-      return result;
-    } catch (error) {
-      logger.error(
-        `IPC: Failed to drag element with backendNodeId ${sourceBackendNodeId}:`,
-        error
-      );
-      throw error;
-    }
-  }
-);
-
 // Incremental Detection Handler
 ipcMain.handle(
   "dom:incrementalDetection",
@@ -495,9 +387,10 @@ ipcMain.handle(
       logger.info("IPC: Generating LLM representation");
 
       const result = await domService.getSerializedDOMTree();
-      const llmRepresentation = await domService
-        .getSerializer()
-        .generateLLMRepresentation(result.serializedState.root);
+      const llmRepresentation =
+        await domService.serializer.generateLLMRepresentation(
+          result.serializedState.root
+        );
 
       const llmResult: LLMRepresentationResult = {
         success: true,
@@ -526,6 +419,263 @@ ipcMain.handle(
         timestamp: Date.now(),
         error: errorMessage,
       };
+    }
+  }
+);
+
+// Interaction Service IPC Handlers
+
+ipcMain.handle(
+  "interaction:clickElement",
+  async (_, backendNodeId: number, options?: ClickOptions) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(`IPC: Clicking element with backendNodeId: ${backendNodeId}`);
+      const result = await elementInteractionService.clickElement(
+        backendNodeId,
+        options
+      );
+      logger.info(
+        `IPC: Element click result: ${result.success ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to click element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "interaction:fillElement",
+  async (_, backendNodeId: number, options: FillOptions) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Filling element with backendNodeId: ${backendNodeId}, value: "${options.value}"`
+      );
+      const result = await elementInteractionService.fillElement(
+        backendNodeId,
+        options
+      );
+      logger.info(
+        `IPC: Element fill result: ${result.success ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to fill element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "interaction:selectOption",
+  async (_, backendNodeId: number, options: SelectOptionOptions) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Selecting options for element with backendNodeId: ${backendNodeId}, values: "${
+          Array.isArray(options.values)
+            ? options.values.join(", ")
+            : options.values
+        }"`
+      );
+      const result = await elementInteractionService.selectOption(
+        backendNodeId,
+        options
+      );
+      logger.info(
+        `IPC: Element select result: ${
+          result.success ? "success" : "failed"
+        }, options selected: ${result.optionsSelected || 0}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to select options for element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "interaction:hoverElement",
+  async (_, backendNodeId: number, options?: HoverOptions) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(`IPC: Hovering element with backendNodeId: ${backendNodeId}`);
+      const result = await elementInteractionService.hoverElement(
+        backendNodeId,
+        options
+      );
+      logger.info(
+        `IPC: Element hover result: ${result.success ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to hover element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "interaction:dragElement",
+  async (_, sourceBackendNodeId: number, options: DragOptions) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Dragging from element with backendNodeId: ${sourceBackendNodeId}`
+      );
+      const result = await elementInteractionService.dragToElement(
+        sourceBackendNodeId,
+        options
+      );
+      logger.info(
+        `IPC: Element drag result: ${result.success ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to drag element with backendNodeId ${sourceBackendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "interaction:getAttribute",
+  async (_, backendNodeId: number, attributeName: string) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Getting attribute "${attributeName}" from element with backendNodeId: ${backendNodeId}`
+      );
+      const result = await elementInteractionService.getAttribute(
+        backendNodeId,
+        attributeName
+      );
+      logger.info(
+        `IPC: Attribute get result: ${result.success ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to get attribute from element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "interaction:evaluate",
+  async (
+    _,
+    backendNodeId: number,
+    expression: string,
+    args: unknown[] = []
+  ) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Evaluating expression on element with backendNodeId: ${backendNodeId}`
+      );
+      const result = await elementInteractionService.evaluate(
+        backendNodeId,
+        expression,
+        args
+      );
+      logger.info(
+        `IPC: Expression evaluate result: ${
+          result.success ? "success" : "failed"
+        }`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to evaluate expression on element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle("interaction:getBasicInfo", async (_, backendNodeId: number) => {
+  if (!elementInteractionService) {
+    throw new Error("ElementInteractionService not initialized");
+  }
+  try {
+    logger.info(
+      `IPC: Getting basic info for element with backendNodeId: ${backendNodeId}`
+    );
+    const result = await elementInteractionService.getBasicInfo(backendNodeId);
+    logger.info(
+      `IPC: Basic info get result: ${result.success ? "success" : "failed"}`
+    );
+    return result;
+  } catch (error) {
+    logger.error(
+      `IPC: Failed to get basic info for element with backendNodeId ${backendNodeId}:`,
+      error
+    );
+    throw error;
+  }
+});
+
+ipcMain.handle(
+  "interaction:getElementBoundingBox",
+  async (_, backendNodeId: number) => {
+    if (!elementInteractionService) {
+      throw new Error("ElementInteractionService not initialized");
+    }
+    try {
+      logger.info(
+        `IPC: Getting bounding box for element with backendNodeId: ${backendNodeId}`
+      );
+      const result = await elementInteractionService.getBoundingBox(
+        backendNodeId
+      );
+      logger.info(
+        `IPC: Bounding box get result: ${result ? "success" : "failed"}`
+      );
+      return result;
+    } catch (error) {
+      logger.error(
+        `IPC: Failed to get bounding box for element with backendNodeId ${backendNodeId}:`,
+        error
+      );
+      throw error;
     }
   }
 );

@@ -32,7 +32,12 @@ import type {
   ScrollAtCoordinateOptions,
   ScrollResult,
 } from "@shared/dom/interaction";
-import { sendCDPCommand } from "@/services/dom/utils/DOMUtils";
+import {
+  sendCDPCommand,
+  attachDebugger,
+  detachDebugger,
+  isDebuggerAttached
+} from "@/services/dom/utils/DOMUtils";
 import type { LogFunctions } from "electron-log";
 
 /**
@@ -56,6 +61,40 @@ export class ElementInteractionService {
   constructor(webContents: WebContents) {
     this.webContents = webContents;
     this.logger = log.scope("ElementInteractionService");
+  }
+
+  /**
+   * Initialize the ElementInteractionService with debugger attachment
+   */
+  async initialize(): Promise<void> {
+    try {
+      await attachDebugger(this.webContents, this.logger);
+      this.logger.info("ElementInteractionService initialized");
+    } catch (error) {
+      this.logger.error("Failed to initialize ElementInteractionService:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cleanup resources and detach debugger
+   */
+  async destroy(): Promise<void> {
+    try {
+      await detachDebugger(this.webContents, this.logger);
+      this.logger.info("ElementInteractionService destroyed");
+    } catch (error) {
+      this.logger.error("Error during ElementInteractionService destruction:", error);
+    }
+  }
+
+  /**
+   * Ensure debugger is attached before performing interactions
+   */
+  private ensureDebuggerAttached(): void {
+    if (!isDebuggerAttached(this.webContents)) {
+      throw new Error("Debugger not attached - call initialize() first");
+    }
   }
 
   /**
@@ -725,6 +764,7 @@ export class ElementInteractionService {
     backendNodeId: number,
     options: ClickOptions = {}
   ): Promise<ClickResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
 
     try {
@@ -883,6 +923,7 @@ export class ElementInteractionService {
     backendNodeId: number,
     options: FillOptions
   ): Promise<FillResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
     const { value, clear: shouldClear = true, keystrokeDelay = 18 } = options;
 
@@ -1015,6 +1056,7 @@ export class ElementInteractionService {
     backendNodeId: number,
     options: SelectOptionOptions
   ): Promise<SelectOptionResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
     const { values, clear: shouldClear = true, timeout = 5000 } = options;
 
@@ -1338,6 +1380,7 @@ export class ElementInteractionService {
    * Get element bounding box using multiple methods
    */
   async getBoundingBox(backendNodeId: number): Promise<BoundingBox | null> {
+    this.ensureDebuggerAttached();
     try {
       // Try DOM.getBoxModel first
       const boxModel: CDP.DOM.GetBoxModelResponse = await sendCDPCommand(
@@ -1423,6 +1466,7 @@ export class ElementInteractionService {
     backendNodeId: number,
     options: HoverOptions = {}
   ): Promise<HoverResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
 
     try {
@@ -1495,6 +1539,7 @@ export class ElementInteractionService {
     sourceBackendNodeId: number,
     options: DragOptions
   ): Promise<DragResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
 
     try {
@@ -1661,6 +1706,7 @@ export class ElementInteractionService {
     backendNodeId: number,
     attributeName: string
   ): Promise<GetAttributeResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
 
     try {
@@ -1764,6 +1810,7 @@ export class ElementInteractionService {
     expression: string,
     args: unknown[] = []
   ): Promise<EvaluateResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
 
     try {
@@ -1875,6 +1922,7 @@ export class ElementInteractionService {
    * Based on browser-use get_basic_info implementation
    */
   async getBasicInfo(backendNodeId: number): Promise<GetBasicInfoResult> {
+    this.ensureDebuggerAttached();
     const startTime = Date.now();
 
     try {

@@ -125,7 +125,7 @@ export const useUiStore = create<UiState>()(
         if (!window.ipcRenderer) {
           throw new Error("IPC Renderer not available");
         }
-        const result = await window.ipcRenderer.invoke("dom:clickElement", backendNodeId, options) as ClickResult;
+        const result = await window.ipcRenderer.invoke("interaction:clickElement", backendNodeId, options) as ClickResult;
         set({ lastClickResult: result });
         return result;
       } catch (error) {
@@ -146,7 +146,7 @@ export const useUiStore = create<UiState>()(
         if (!window.ipcRenderer) {
           throw new Error("IPC Renderer not available");
         }
-        const result = await window.ipcRenderer.invoke("dom:fillElement", backendNodeId, options) as FillResult;
+        const result = await window.ipcRenderer.invoke("interaction:fillElement", backendNodeId, options) as FillResult;
         set({ lastFillResult: result });
         return result;
       } catch (error) {
@@ -167,7 +167,7 @@ export const useUiStore = create<UiState>()(
         if (!window.ipcRenderer) {
           throw new Error("IPC Renderer not available");
         }
-        const result = await window.ipcRenderer.invoke("dom:selectOption", backendNodeId, options) as SelectOptionResult;
+        const result = await window.ipcRenderer.invoke("interaction:selectOption", backendNodeId, options) as SelectOptionResult;
         set({ lastSelectResult: result });
         return result;
       } catch (error) {
@@ -188,7 +188,7 @@ export const useUiStore = create<UiState>()(
         if (!window.ipcRenderer) {
           throw new Error("IPC Renderer not available");
         }
-        const result = await window.ipcRenderer.invoke("dom:hoverElement", backendNodeId, options) as HoverResult;
+        const result = await window.ipcRenderer.invoke("interaction:hoverElement", backendNodeId, options) as HoverResult;
         set({ lastHoverResult: result });
         return result;
       } catch (error) {
@@ -209,7 +209,7 @@ export const useUiStore = create<UiState>()(
         if (!window.ipcRenderer) {
           throw new Error("IPC Renderer not available");
         }
-        const result = await window.ipcRenderer.invoke("dom:dragElement", sourceBackendNodeId, options) as DragResult;
+        const result = await window.ipcRenderer.invoke("interaction:dragElement", sourceBackendNodeId, options) as DragResult;
         set({ lastDragResult: result });
         return result;
       } catch (error) {
