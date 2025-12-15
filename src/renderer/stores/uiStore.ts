@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import type { Rectangle } from "electron";
 import type { ClickOptions, FillOptions, ClickResult, FillResult, SelectOptionOptions, SelectOptionResult, HoverOptions, HoverResult, DragOptions, DragResult } from "@shared/dom/interaction";
-import type { IncrementalDetectionResult, LLMRepresentationResult } from "@shared/dom";
+import type { IncrementalDetectionResult, LLMRepresentationResult, SerializationStats } from "@shared/dom";
 
 interface UiState {
   // Container reference for resize observer
@@ -38,6 +38,15 @@ interface UiState {
   lastLLMRepresentation: string | null;
   llmGenerationError: string | null;
 
+  // DOM baseline initialization state
+  isInitializingBaseline: boolean;
+  lastInitializationResult: {
+    success: boolean;
+    message: string;
+    error?: string;
+    stats?: SerializationStats;
+  } | null;
+
   // Actions
   setContainerRef: (ref: HTMLDivElement | null) => void;
   setContainerBounds: (bounds: Rectangle | null) => void;
@@ -60,6 +69,12 @@ interface UiState {
   // Detection and LLM actions
   detectChanges: () => Promise<IncrementalDetectionResult>;
   generateLLMRepresentation: () => Promise<LLMRepresentationResult>;
+  initializeDomBaseline: () => Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+    stats?: SerializationStats;
+  }>;
 }
 
 export const useUiStore = create<UiState>()(
@@ -94,6 +109,10 @@ export const useUiStore = create<UiState>()(
     isGeneratingLLM: false,
     lastLLMRepresentation: null,
     llmGenerationError: null,
+
+    // DOM baseline initialization initial state
+    isInitializingBaseline: false,
+    lastInitializationResult: null,
 
     // Actions
     setContainerRef: (ref) => set({ containerRef: ref }),
@@ -275,6 +294,37 @@ export const useUiStore = create<UiState>()(
         return errorResult;
       } finally {
         set({ isGeneratingLLM: false });
+      }
+    },
+
+    initializeDomBaseline: async (): Promise<{
+      success: boolean;
+      message: string;
+      error?: string;
+      stats?: SerializationStats;
+    }> => {
+      set({ isInitializingBaseline: true, lastInitializationResult: null });
+
+      try {
+        if (!window.ipcRenderer) {
+          throw new Error("IPC Renderer not available");
+        }
+
+        const result = await window.ipcRenderer.invoke("dom:initializeBaseline");
+        set({ lastInitializationResult: result });
+        return result;
+
+      } catch (error) {
+        const errorResult = {
+          success: false,
+          message: "Failed to initialize DOM baseline",
+          error: error instanceof Error ? error.message : String(error)
+        };
+        set({ lastInitializationResult: errorResult });
+        return errorResult;
+
+      } finally {
+        set({ isInitializingBaseline: false });
       }
     },
   }))

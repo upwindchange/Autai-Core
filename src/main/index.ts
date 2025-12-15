@@ -14,6 +14,7 @@ import { ElementInteractionService } from "@/services/interaction";
 import type {
   SerializedDOMState,
   SerializationConfig,
+  SerializationStats,
   IncrementalDetectionResult,
   LLMRepresentationResult,
 } from "@shared/dom";
@@ -99,9 +100,8 @@ function createWindow() {
           elementInteractionService.initialize(),
         ]);
 
-        await domService.getSerializedDOMTree();
         logger.info(
-          "Both services initialized successfully - tree construction complete"
+          "Both services initialized successfully - ready for manual DOM tree creation"
         );
       }
     } catch (error) {
@@ -328,6 +328,38 @@ ipcMain.handle("dom:getStatus", () => {
   }
   return domService.getStatus();
 });
+
+ipcMain.handle(
+  "dom:initializeBaseline",
+  async (): Promise<{ success: boolean; message: string; error?: string; stats?: SerializationStats }> => {
+    if (!domService) {
+      throw new Error("DOMService not initialized");
+    }
+
+    try {
+      logger.info("IPC: Manually initializing DOM baseline");
+
+      const result = await domService.getSerializedDOMTree();
+
+      logger.info("IPC: DOM baseline initialized successfully");
+      return {
+        success: true,
+        message: "DOM baseline initialized successfully",
+        stats: result.stats
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`IPC: Failed to initialize DOM baseline: ${errorMessage}`);
+
+      return {
+        success: false,
+        message: "Failed to initialize DOM baseline",
+        error: errorMessage
+      };
+    }
+  }
+);
 
 // Incremental Detection Handler
 ipcMain.handle(

@@ -45,6 +45,11 @@ function ControlPanel() {
     llmGenerationError,
     detectChanges,
     generateLLMRepresentation,
+
+    // DOM baseline initialization state
+    isInitializingBaseline,
+    lastInitializationResult,
+    initializeDomBaseline,
   } = useUiStore();
 
   // Event handlers
@@ -153,6 +158,14 @@ function ControlPanel() {
     }
   };
 
+  const handleInitializeBaseline = async () => {
+    try {
+      await initializeDomBaseline();
+    } catch (error) {
+      console.error("Failed to initialize DOM baseline:", error);
+    }
+  };
+
   const handleGenerateLLM = async () => {
     try {
       await generateLLMRepresentation();
@@ -170,34 +183,63 @@ function ControlPanel() {
         </h2>
 
         <div className="grid grid-cols-1 gap-4">
-          {/* Incremental Detection */}
+          {/* DOM State Management */}
           <div className="border border-gray-200 rounded-lg p-4">
             <h3 className="text-lg font-medium text-gray-700 mb-3">
-              Re-detect Changes
+              DOM State Management
             </h3>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleDetectChanges}
-                disabled={isDetectingChanges}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors"
-              >
-                {isDetectingChanges ? "detecting..." : "re-detect elements"}
-              </button>
-              {lastDetectionResult && (
-                <div className="text-sm text-gray-600">
-                  {lastDetectionResult.success
-                    ? lastDetectionResult.hasChanges
-                      ? `Found ${lastDetectionResult.newElementsCount} new elements`
-                      : "No changes detected"
-                    : "Detection failed"}
+
+            {/* Initialize Baseline Button */}
+            <div className="mb-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleInitializeBaseline}
+                  disabled={isInitializingBaseline}
+                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-green-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isInitializingBaseline ? "initializing..." : "initialize dom baseline"}
+                </button>
+                {lastInitializationResult && (
+                  <div className={`text-sm ${lastInitializationResult.success ? "text-green-600" : "text-red-600"}`}>
+                    {lastInitializationResult.success
+                      ? `${lastInitializationResult.message} (${lastInitializationResult.stats?.interactiveElements || 0} interactive elements)`
+                      : lastInitializationResult.error}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Re-detect Changes Button */}
+            <div className="border-t border-gray-200 pt-4">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleDetectChanges}
+                  disabled={isDetectingChanges || !lastInitializationResult?.success}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-blue-400 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isDetectingChanges ? "detecting..." : "re-detect elements"}
+                </button>
+                {lastDetectionResult && (
+                  <div className="text-sm text-gray-600">
+                    {lastDetectionResult.success
+                      ? lastDetectionResult.hasChanges
+                        ? `Found ${lastDetectionResult.newElementsCount} new elements`
+                        : "No changes detected"
+                      : "Detection failed"}
+                  </div>
+                )}
+              </div>
+              {!lastInitializationResult?.success && (
+                <div className="mt-2 text-sm text-amber-600">
+                  Initialize DOM baseline first to enable change detection
+                </div>
+              )}
+              {lastDetectionResult && !lastDetectionResult.success && lastDetectionResult.error && (
+                <div className="mt-2 text-sm text-red-600">
+                  Error: {lastDetectionResult.error}
                 </div>
               )}
             </div>
-            {lastDetectionResult && !lastDetectionResult.success && lastDetectionResult.error && (
-              <div className="mt-2 text-sm text-red-600">
-                Error: {lastDetectionResult.error}
-              </div>
-            )}
           </div>
 
           {/* LLM Representation */}
