@@ -304,7 +304,7 @@ ipcMain.handle("dom:getDOMTree", async () => {
 });
 
 ipcMain.handle(
-  "dom:getSerializedDOMTree",
+  "dom:resetDOMTree",
   async (
     _,
     previousState?: SerializedDOMState,
@@ -314,9 +314,9 @@ ipcMain.handle(
       throw new Error("DOMService not initialized");
     }
     try {
-      return await domService.getSerializedDOMTree(previousState, config);
+      return await domService.resetDOMTree(previousState, config);
     } catch (error) {
-      logger.error("Failed to get serialized DOM tree:", error);
+      logger.error("Failed to reset DOM tree:", error);
       throw error;
     }
   }
@@ -339,7 +339,7 @@ ipcMain.handle(
     try {
       logger.info("IPC: Manually initializing DOM baseline");
 
-      const result = await domService.getSerializedDOMTree();
+      const result = await domService.resetDOMTree();
 
       logger.info("IPC: DOM baseline initialized successfully");
       return {
@@ -372,7 +372,7 @@ ipcMain.handle(
       logger.info("IPC: Performing incremental DOM detection");
 
       const previousState = domService.getPreviousState();
-      const result = await domService.getDOMTreeWithChangeDetection(
+      const result = await domService.getDOMTreeWithChanges(
         previousState
       );
 
@@ -418,7 +418,7 @@ ipcMain.handle(
     try {
       logger.info("IPC: Generating LLM representation");
 
-      const result = await domService.getSerializedDOMTree();
+      const result = await domService.resetDOMTree();
       const llmRepresentation =
         await domService.serializer.generateLLMRepresentation(
           result.serializedState.root

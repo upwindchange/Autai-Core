@@ -22,9 +22,10 @@ export interface IDOMService {
   getDOMTree(targetId?: string): Promise<EnhancedDOMTreeNode>;
 
   /**
-   * Get serialized DOM tree optimized for LLM consumption
+   * Reset and get serialized DOM tree optimized for LLM consumption.
+   * This method performs a full serialization and updates the internal state.
    */
-  getSerializedDOMTree(
+  resetDOMTree(
     previousState?: SerializedDOMState,
     config?: Partial<SerializationConfig>
   ): Promise<{
@@ -34,9 +35,10 @@ export interface IDOMService {
   }>;
 
   /**
-   * Get DOM tree with change detection for efficient updates
+   * Get DOM tree with change detection.
+   * This method returns the current DOM tree with change analysis.
    */
-  getDOMTreeWithChangeDetection(previousState?: SerializedDOMState): Promise<{
+  getDOMTreeWithChanges(previousState?: SerializedDOMState): Promise<{
     domTree: EnhancedDOMTreeNode;
     serializedState?: SerializedDOMState;
     hasChanges: boolean;

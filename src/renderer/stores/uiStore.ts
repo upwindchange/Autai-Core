@@ -310,7 +310,12 @@ export const useUiStore = create<UiState>()(
           throw new Error("IPC Renderer not available");
         }
 
-        const result = await window.ipcRenderer.invoke("dom:initializeBaseline");
+        const result = await window.ipcRenderer.invoke("dom:initializeBaseline") as {
+          success: boolean;
+          message: string;
+          error?: string;
+          stats?: SerializationStats;
+        };
         set({ lastInitializationResult: result });
         return result;
 

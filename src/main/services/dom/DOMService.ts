@@ -449,9 +449,10 @@ export class DOMService implements IDOMService {
   }
 
   /**
-   * Get serialized DOM tree optimized for LLM consumption
+   * Reset and get serialized DOM tree optimized for LLM consumption.
+   * This method performs a full serialization and updates the internal state.
    */
-  async getSerializedDOMTree(
+  async resetDOMTree(
     previousState?: SerializedDOMState,
     config?: Partial<SerializationConfig>
   ): Promise<{
@@ -493,9 +494,10 @@ export class DOMService implements IDOMService {
   }
 
   /**
-   * Get DOM tree with change detection
+   * Get DOM tree with change detection.
+   * This method returns the current DOM tree with change analysis.
    */
-  async getDOMTreeWithChangeDetection(
+  async getDOMTreeWithChanges(
     previousState?: SerializedDOMState
   ): Promise<{
     domTree: EnhancedDOMTreeNode;
