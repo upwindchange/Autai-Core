@@ -29,7 +29,7 @@ import type {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const logger = log.scope("main");
 
-const DEFAULT_URL = "https://geodemo.graphics";
+const DEFAULT_URL = "https://google.com";
 
 process.env.APP_ROOT = path.join(__dirname, "../..");
 export const MAIN_DIST = path.join(process.env.APP_ROOT, "out/main");
@@ -88,20 +88,17 @@ function createWindow() {
 
   domService = new DOMService(webView.webContents);
   elementInteractionService = new ElementInteractionService(
-    webView.webContents
+    webView.webContents,
   );
   webView.webContents.on("did-finish-load", async () => {
     logger.info("Page finished loading, initializing services...");
 
     try {
       if (domService && elementInteractionService) {
-        await Promise.all([
-          domService.initialize(),
-          elementInteractionService.initialize(),
-        ]);
+        await Promise.all([domService.initialize()]);
 
         logger.info(
-          "Both services initialized successfully - ready for manual DOM tree creation"
+          "Both services initialized successfully - ready for manual DOM tree creation",
         );
       }
     } catch (error) {
@@ -146,7 +143,7 @@ function createControlPanel() {
     // Production: Load from built files
     const controlPanelHtml = path.join(
       RENDERER_DIST,
-      "control-panel/index.html"
+      "control-panel/index.html",
     );
     controlPanelWindow.loadFile(controlPanelHtml);
   }
@@ -296,7 +293,8 @@ ipcMain.handle("dom:getDOMTree", async () => {
     throw new Error("DOMService not initialized");
   }
   try {
-    return await domService.getDOMTree();
+    await domService.buildSimplifiedDOMTree(false);
+    return domService.simplifiedDOMState;
   } catch (error) {
     logger.error("Failed to get DOM tree:", error);
     throw error;
@@ -307,19 +305,28 @@ ipcMain.handle(
   "dom:resetDOMTree",
   async (
     _,
-    previousState?: SerializedDOMState,
-    config?: Partial<SerializationConfig>
+    _previousState?: SerializedDOMState,
+    _config?: Partial<SerializationConfig>,
   ) => {
     if (!domService) {
       throw new Error("DOMService not initialized");
     }
     try {
-      return await domService.resetDOMTree(previousState, config);
+      await domService.buildSimplifiedDOMTree(false);
+      const state = domService.simplifiedDOMState;
+      if (!state) {
+        throw new Error("DOM state not available after build");
+      }
+      return {
+        hasChanges: state.stats.newSimplifiedNodesCount > 0,
+        changeCount: state.stats.newSimplifiedNodesCount,
+        serializedState: state,
+      };
     } catch (error) {
       logger.error("Failed to reset DOM tree:", error);
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle("dom:getStatus", () => {
@@ -331,7 +338,12 @@ ipcMain.handle("dom:getStatus", () => {
 
 ipcMain.handle(
   "dom:initializeBaseline",
-  async (): Promise<{ success: boolean; message: string; error?: string; stats?: SerializationStats }> => {
+  async (): Promise<{
+    success: boolean;
+    message: string;
+    error?: string;
+    stats?: SerializationStats;
+  }> => {
     if (!domService) {
       throw new Error("DOMService not initialized");
     }
@@ -339,13 +351,14 @@ ipcMain.handle(
     try {
       logger.info("IPC: Manually initializing DOM baseline");
 
-      const result = await domService.resetDOMTree();
+      await domService.buildSimplifiedDOMTree(false);
 
       logger.info("IPC: DOM baseline initialized successfully");
+      const state = domService.simplifiedDOMState;
       return {
         success: true,
         message: "DOM baseline initialized successfully",
-        stats: result.stats
+        stats: state?.stats,
       };
     } catch (error) {
       const errorMessage =
@@ -355,10 +368,10 @@ ipcMain.handle(
       return {
         success: false,
         message: "Failed to initialize DOM baseline",
-        error: errorMessage
+        error: errorMessage,
       };
     }
-  }
+  },
 );
 
 // Incremental Detection Handler
@@ -371,21 +384,19 @@ ipcMain.handle(
     try {
       logger.info("IPC: Performing incremental DOM detection");
 
-      const previousState = domService.getPreviousState();
-      const result = await domService.getDOMTreeWithChanges(
-        previousState
-      );
+      // Use keepPreviousState=true to detect changes without updating baseline
+      const changeStats = await domService.buildSimplifiedDOMTree(true);
 
       const detectionResult: IncrementalDetectionResult = {
         success: true,
-        hasChanges: result.hasChanges,
-        changeCount: result.changeCount,
-        newElementsCount: result.changeCount,
+        hasChanges: changeStats.newNodesCount > 0,
+        changeCount: changeStats.newNodesCount,
+        newElementsCount: changeStats.newNodesCount,
         timestamp: Date.now(),
       };
 
       logger.info(
-        `IPC: Incremental detection complete - changes: ${detectionResult.hasChanges}, new elements: ${detectionResult.newElementsCount}`
+        `IPC: Incremental detection complete - changes: ${detectionResult.hasChanges}, new elements: ${detectionResult.newElementsCount}`,
       );
 
       return detectionResult;
@@ -393,7 +404,7 @@ ipcMain.handle(
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       logger.error(
-        `IPC: Failed to perform incremental detection: ${errorMessage}`
+        `IPC: Failed to perform incremental detection: ${errorMessage}`,
       );
 
       return {
@@ -405,7 +416,7 @@ ipcMain.handle(
         error: errorMessage,
       };
     }
-  }
+  },
 );
 
 // LLM Representation Handler
@@ -418,23 +429,28 @@ ipcMain.handle(
     try {
       logger.info("IPC: Generating LLM representation");
 
-      const result = await domService.resetDOMTree();
+      // Build the tree (resets baseline by default)
+      await domService.buildSimplifiedDOMTree(false);
+
+      // Get LLM representation using the new method
+      const state = domService.simplifiedDOMState;
+      if (!state) {
+        throw new Error("DOM state not available after build");
+      }
       const llmRepresentation =
-        await domService.serializer.generateLLMRepresentation(
-          result.serializedState.root
-        );
+        await domService.serializer.flattenSimplifiedDOMTree(state.root);
 
       const llmResult: LLMRepresentationResult = {
         success: true,
         representation: llmRepresentation || "No LLM representation available",
-        stats: result.stats,
+        stats: state.stats,
         timestamp: Date.now(),
       };
 
       logger.info(
         `IPC: LLM representation generated - length: ${
           llmRepresentation?.length || 0
-        } characters`
+        } characters`,
       );
 
       return llmResult;
@@ -442,7 +458,7 @@ ipcMain.handle(
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       logger.error(
-        `IPC: Failed to generate LLM representation: ${errorMessage}`
+        `IPC: Failed to generate LLM representation: ${errorMessage}`,
       );
 
       return {
@@ -452,7 +468,7 @@ ipcMain.handle(
         error: errorMessage,
       };
     }
-  }
+  },
 );
 
 // Interaction Service IPC Handlers
@@ -467,20 +483,20 @@ ipcMain.handle(
       logger.info(`IPC: Clicking element with backendNodeId: ${backendNodeId}`);
       const result = await elementInteractionService.clickElement(
         backendNodeId,
-        options
+        options,
       );
       logger.info(
-        `IPC: Element click result: ${result.success ? "success" : "failed"}`
+        `IPC: Element click result: ${result.success ? "success" : "failed"}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to click element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -491,24 +507,24 @@ ipcMain.handle(
     }
     try {
       logger.info(
-        `IPC: Filling element with backendNodeId: ${backendNodeId}, value: "${options.value}"`
+        `IPC: Filling element with backendNodeId: ${backendNodeId}, value: "${options.value}"`,
       );
       const result = await elementInteractionService.fillElement(
         backendNodeId,
-        options
+        options,
       );
       logger.info(
-        `IPC: Element fill result: ${result.success ? "success" : "failed"}`
+        `IPC: Element fill result: ${result.success ? "success" : "failed"}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to fill element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -523,26 +539,26 @@ ipcMain.handle(
           Array.isArray(options.values)
             ? options.values.join(", ")
             : options.values
-        }"`
+        }"`,
       );
       const result = await elementInteractionService.selectOption(
         backendNodeId,
-        options
+        options,
       );
       logger.info(
         `IPC: Element select result: ${
           result.success ? "success" : "failed"
-        }, options selected: ${result.optionsSelected || 0}`
+        }, options selected: ${result.optionsSelected || 0}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to select options for element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -555,20 +571,20 @@ ipcMain.handle(
       logger.info(`IPC: Hovering element with backendNodeId: ${backendNodeId}`);
       const result = await elementInteractionService.hoverElement(
         backendNodeId,
-        options
+        options,
       );
       logger.info(
-        `IPC: Element hover result: ${result.success ? "success" : "failed"}`
+        `IPC: Element hover result: ${result.success ? "success" : "failed"}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to hover element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -579,24 +595,24 @@ ipcMain.handle(
     }
     try {
       logger.info(
-        `IPC: Dragging from element with backendNodeId: ${sourceBackendNodeId}`
+        `IPC: Dragging from element with backendNodeId: ${sourceBackendNodeId}`,
       );
       const result = await elementInteractionService.dragToElement(
         sourceBackendNodeId,
-        options
+        options,
       );
       logger.info(
-        `IPC: Element drag result: ${result.success ? "success" : "failed"}`
+        `IPC: Element drag result: ${result.success ? "success" : "failed"}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to drag element with backendNodeId ${sourceBackendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -607,24 +623,24 @@ ipcMain.handle(
     }
     try {
       logger.info(
-        `IPC: Getting attribute "${attributeName}" from element with backendNodeId: ${backendNodeId}`
+        `IPC: Getting attribute "${attributeName}" from element with backendNodeId: ${backendNodeId}`,
       );
       const result = await elementInteractionService.getAttribute(
         backendNodeId,
-        attributeName
+        attributeName,
       );
       logger.info(
-        `IPC: Attribute get result: ${result.success ? "success" : "failed"}`
+        `IPC: Attribute get result: ${result.success ? "success" : "failed"}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to get attribute from element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle(
@@ -633,34 +649,34 @@ ipcMain.handle(
     _,
     backendNodeId: number,
     expression: string,
-    args: unknown[] = []
+    args: unknown[] = [],
   ) => {
     if (!elementInteractionService) {
       throw new Error("ElementInteractionService not initialized");
     }
     try {
       logger.info(
-        `IPC: Evaluating expression on element with backendNodeId: ${backendNodeId}`
+        `IPC: Evaluating expression on element with backendNodeId: ${backendNodeId}`,
       );
       const result = await elementInteractionService.evaluate(
         backendNodeId,
         expression,
-        args
+        args,
       );
       logger.info(
         `IPC: Expression evaluate result: ${
           result.success ? "success" : "failed"
-        }`
+        }`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to evaluate expression on element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );
 
 ipcMain.handle("interaction:getBasicInfo", async (_, backendNodeId: number) => {
@@ -669,17 +685,17 @@ ipcMain.handle("interaction:getBasicInfo", async (_, backendNodeId: number) => {
   }
   try {
     logger.info(
-      `IPC: Getting basic info for element with backendNodeId: ${backendNodeId}`
+      `IPC: Getting basic info for element with backendNodeId: ${backendNodeId}`,
     );
     const result = await elementInteractionService.getBasicInfo(backendNodeId);
     logger.info(
-      `IPC: Basic info get result: ${result.success ? "success" : "failed"}`
+      `IPC: Basic info get result: ${result.success ? "success" : "failed"}`,
     );
     return result;
   } catch (error) {
     logger.error(
       `IPC: Failed to get basic info for element with backendNodeId ${backendNodeId}:`,
-      error
+      error,
     );
     throw error;
   }
@@ -693,21 +709,20 @@ ipcMain.handle(
     }
     try {
       logger.info(
-        `IPC: Getting bounding box for element with backendNodeId: ${backendNodeId}`
+        `IPC: Getting bounding box for element with backendNodeId: ${backendNodeId}`,
       );
-      const result = await elementInteractionService.getBoundingBox(
-        backendNodeId
-      );
+      const result =
+        await elementInteractionService.getBoundingBox(backendNodeId);
       logger.info(
-        `IPC: Bounding box get result: ${result ? "success" : "failed"}`
+        `IPC: Bounding box get result: ${result ? "success" : "failed"}`,
       );
       return result;
     } catch (error) {
       logger.error(
         `IPC: Failed to get bounding box for element with backendNodeId ${backendNodeId}:`,
-        error
+        error,
       );
       throw error;
     }
-  }
+  },
 );

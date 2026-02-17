@@ -3,8 +3,8 @@
  * Based on browser-use implementation patterns
  */
 
-export type MouseButton = 'left' | 'right' | 'middle';
-export type ModifierType = 'Alt' | 'Control' | 'Meta' | 'Shift';
+export type MouseButton = "left" | "right" | "middle";
+export type ModifierType = "Alt" | "Control" | "Meta" | "Shift";
 
 export interface ClickOptions {
 	/**
@@ -103,7 +103,7 @@ export interface ClickResult {
 	/**
 	 * Which method was used for coordinate resolution
 	 */
-	method?: 'contentQuads' | 'boxModel' | 'boundingRect' | 'javascript';
+	method?: "contentQuads" | "boxModel" | "boundingRect" | "javascript";
 
 	/**
 	 * Time taken for the entire click operation in milliseconds
@@ -152,7 +152,7 @@ export interface FillResult {
 	/**
 	 * Which method was used for the final typing operation
 	 */
-	method?: 'cdp' | 'javascript';
+	method?: "cdp" | "javascript";
 
 	/**
 	 * Time taken for the entire fill operation in milliseconds
@@ -223,7 +223,7 @@ export interface SelectOptionResult {
 	/**
 	 * Which method was used for the selection
 	 */
-	method?: 'cdp' | 'javascript';
+	method?: "cdp" | "javascript";
 
 	/**
 	 * Time taken for the entire selection operation in milliseconds
@@ -257,7 +257,7 @@ export interface HoverResult {
 	/**
 	 * Which method was used for coordinate resolution
 	 */
-	method?: 'contentQuads' | 'boxModel' | 'boundingRect' | 'javascript';
+	method?: "contentQuads" | "boxModel" | "boundingRect" | "javascript";
 
 	/**
 	 * Time taken for the entire hover operation in milliseconds
@@ -294,14 +294,11 @@ export interface OptionElement {
 
 export interface DragOptions {
 	/**
-	 * Target can be a Position or an Element backendNodeId
+	 * Target can be a Position {x, y} or an Element backendNodeId
+	 * - If Position: drag to exact coordinates
+	 * - If number: drag to center of element with that backendNodeId
 	 */
 	target: Position | number;
-
-	/**
-	 * Optional relative position offset when target is an Element (default: center)
-	 */
-	targetPosition?: Position;
 }
 
 export interface DragResult {
@@ -328,7 +325,7 @@ export interface DragResult {
 	/**
 	 * Method used for coordinate resolution
 	 */
-	method?: 'contentQuads' | 'boxModel' | 'boundingRect' | 'javascript';
+	method?: "contentQuads" | "boxModel" | "boundingRect" | "javascript";
 
 	/**
 	 * Time taken for the entire drag operation in milliseconds
@@ -529,7 +526,7 @@ export interface ScrollOptions {
 	/**
 	 * Scroll direction - down for positive, up for negative
 	 */
-	direction?: 'up' | 'down';
+	direction?: "up" | "down";
 
 	/**
 	 * Number of pages to scroll (supports fractional values like 0.5 for half page)
@@ -605,3 +602,47 @@ export interface ScrollResult {
 	 */
 	error?: string;
 }
+
+// Interactive tool result interfaces with DOM refresh support
+export interface InteractiveToolResult {
+	/**
+	 * Whether the operation was successful
+	 */
+	success: boolean;
+
+	/**
+	 * Error message if operation failed
+	 */
+	error?: string;
+
+	/**
+	 * View ID for which the operation was performed
+	 */
+	viewId: string;
+
+	/**
+	 * Number of new DOM nodes detected after refresh
+	 */
+	newNodesCount?: number;
+
+	/**
+	 * Total change in DOM node count after refresh
+	 */
+	totalNodesCountChange?: number;
+}
+
+// Extended result types for interactive tools with refresh data
+export interface ClickElementToolResult
+	extends ClickResult, InteractiveToolResult {}
+export interface FillElementToolResult
+	extends FillResult, InteractiveToolResult {}
+export interface SelectOptionToolResult
+	extends SelectOptionResult, InteractiveToolResult {}
+export interface HoverElementToolResult
+	extends HoverResult, InteractiveToolResult {}
+export interface DragToElementToolResult
+	extends DragResult, InteractiveToolResult {}
+export interface ScrollPagesToolResult
+	extends ScrollResult, InteractiveToolResult {}
+export interface ScrollAtCoordinateToolResult
+	extends ScrollResult, InteractiveToolResult {}
