@@ -9,66 +9,66 @@ import "./index.css";
  * Only shows a red border around the rendered webpage.
  */
 function App() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const { setContainerRef, setContainerBounds } = useUiStore();
+	const containerRef = useRef<HTMLDivElement>(null);
+	const { setContainerRef, setContainerBounds } = useUiStore();
 
-  useEffect(() => {
-    if (!containerRef.current) {
-      return;
-    }
+	useEffect(() => {
+		if (!containerRef.current) {
+			return;
+		}
 
-    setContainerRef(containerRef.current);
+		setContainerRef(containerRef.current);
 
-    // Set up resize observer to track container bounds
-    const resizeObserver = new ResizeObserver(() => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        const bounds = {
-          x: Math.round(rect.x),
-          y: Math.round(rect.y),
-          width: Math.round(rect.width),
-          height: Math.round(rect.height),
-        };
-        setContainerBounds(bounds);
-      }
-    });
+		// Set up resize observer to track container bounds
+		const resizeObserver = new ResizeObserver(() => {
+			if (containerRef.current) {
+				const rect = containerRef.current.getBoundingClientRect();
+				const bounds = {
+					x: Math.round(rect.x),
+					y: Math.round(rect.y),
+					width: Math.round(rect.width),
+					height: Math.round(rect.height),
+				};
+				setContainerBounds(bounds);
+			}
+		});
 
-    resizeObserver.observe(containerRef.current);
+		resizeObserver.observe(containerRef.current);
 
-    // Set initial bounds
-    const rect = containerRef.current.getBoundingClientRect();
-    const initialBounds = {
-      x: Math.round(rect.x),
-      y: Math.round(rect.y),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
-    };
-    setContainerBounds(initialBounds);
+		// Set initial bounds
+		const rect = containerRef.current.getBoundingClientRect();
+		const initialBounds = {
+			x: Math.round(rect.x),
+			y: Math.round(rect.y),
+			width: Math.round(rect.width),
+			height: Math.round(rect.height),
+		};
+		setContainerBounds(initialBounds);
 
-    return () => {
-      resizeObserver.disconnect();
-      setContainerRef(null);
-    };
-  }, [setContainerRef, setContainerBounds]);
+		return () => {
+			resizeObserver.disconnect();
+			setContainerRef(null);
+		};
+	}, [setContainerRef, setContainerBounds]);
 
-  return (
-    <div
-      className="fixed inset-0 flex flex-col bg-gray-100"
-      style={{ zIndex: 1 }}
-    >
-      {/* Container Area */}
-      <div className="flex-1 border-8 border-red-500">
-        <div ref={containerRef} className="w-full h-full" />
-      </div>
-    </div>
-  );
+	return (
+		<div
+			className="fixed inset-0 flex flex-col bg-gray-100"
+			style={{ zIndex: 1 }}
+		>
+			{/* Container Area */}
+			<div className="flex-1 border-8 border-red-500">
+				<div ref={containerRef} className="w-full h-full" />
+			</div>
+		</div>
+	);
 }
 
 // Remove loading screen and render app
 postMessage({ payload: "removeLoading" }, "*");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
+	<React.StrictMode>
+		<App />
+	</React.StrictMode>,
 );

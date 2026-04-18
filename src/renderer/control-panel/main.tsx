@@ -7,7 +7,7 @@ import "../index.css";
 postMessage({ payload: "removeLoading" }, "*");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <ControlPanel />
-  </React.StrictMode>
+	<React.StrictMode>
+		<ControlPanel />
+	</React.StrictMode>,
 );

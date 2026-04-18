@@ -17,7 +17,13 @@
     "tsc": "pnpm tsc:node && pnpm tsc:web",
     "test": "vitest run",
     "lint": "eslint .",
+    "format": "prettier --write src/",
     "postinstall": "node scripts/postinstall.js"
+  },
+  "prettier": {
+    "experimentalTernaries": true,
+    "tabWidth": 2,
+    "useTabs": true
   },
   "dependencies": {
     "electron-updater": "^6.7.3"
@@ -43,6 +49,7 @@
     "express": "^5.2.1",
     "p-queue": "^9.1.0",
     "postcss": "^8.5.6",
+    "prettier": "^3.8.3",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "tailwind-merge": "^3.4.1",
